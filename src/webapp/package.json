@@ -1,0 +1,17 @@
+{
+  "name": "customer-support-webapp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.4.1",
+    "express": "^4.21.0"
+  }
+}

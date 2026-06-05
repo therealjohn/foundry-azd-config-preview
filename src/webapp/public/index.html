@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Customer Support</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    #log { border: 1px solid #ccc; padding: 1rem; height: 360px; overflow-y: auto; background: #fafafa; }
+    .msg { margin: 0.5rem 0; }
+    .msg.user { color: #0066cc; }
+    .msg.bot { color: #333; }
+    .meta { color: #888; font-size: 0.8em; }
+    form { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    input { flex: 1; padding: 0.5rem; }
+    button { padding: 0.5rem 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Customer Support</h1>
+  <p>Ask a question. The triage agent decides which specialist answers it.</p>
+  <div id="log"></div>
+  <form id="form">
+    <input id="input" placeholder="How can I help?" autocomplete="off" required />
+    <button type="submit">Send</button>
+  </form>
+  <script>
+    const log = document.getElementById("log");
+    const form = document.getElementById("form");
+    const input = document.getElementById("input");
+
+    function append(role, text, meta) {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+      div.innerHTML = `<strong>${role}:</strong> ${text}` +
+        (meta ? `<div class="meta">${meta}</div>` : "");
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+      append("user", message);
+      input.value = "";
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "request failed");
+        append("bot", data.reply, `routed to ${data.route}`);
+      } catch (err) {
+        append("bot", `error: ${err.message}`);
+      }
+    });
+  </script>
+</body>
+</html>
