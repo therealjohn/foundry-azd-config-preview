@@ -15,7 +15,11 @@ real Foundry endpoint, but most logic is stubbed.
 | Branch | Demonstrates |
 |---|---|
 | [`simple`](../../tree/simple) | One hosted agent + one model deployment under a single `host: microsoft.foundry` service entry. ~40-line `azure.yaml`. The minimum a Foundry project can be. |
-| [`complex`](../../tree/complex) | Multi-agent platform: 2 hosted + 2 prompt agents (both `runtime:`/`docker:` deploy modes shown), shared toolboxes with web search / code interpreter / MCP / Azure AI Search, three connection types (incl. `${{...}}` server-side resolution), 3 model deployments, 2 file-backed skills, a scheduled routine, all nested in one Foundry service entry -- plus a separate non-Foundry Container Apps frontend that consumes the agents. |
+| [`complex`](../../tree/complex) | Multi-agent platform: 2 hosted + 2 prompt agents (both `runtime:`/`docker:` deploy modes shown), shared toolboxes with web search / code interpreter / MCP / Azure AI Search, three connection types (incl. `${{...}}` server-side resolution), 3 model deployments, 2 file-backed skills, a scheduled routine, all under one Foundry service entry -- plus a separate non-Foundry Container Apps frontend that consumes the agents. |
+
+For copy-pasteable snippets covering individual scenarios (single vs.
+multi-agent, new vs. existing resource references, Docker local/remote,
+code-deploy across Python/.NET/Node, etc.), see [`REFERENCE.md`](./REFERENCE.md).
 
 ---
 
@@ -57,24 +61,24 @@ plane state and may host multiple sub-agents.
 ## The shape, in one paragraph
 
 One Foundry project = one entry in `services:` with a new host kind,
-`microsoft.foundry`. That entry's `config:` block carries all
-Foundry-scoped state (model deployments, project connections, toolboxes,
-skills, routines) plus every agent definition. Each agent nests its own
-`project:`/`runtime:`/`docker:`/`startupCommand:` when code-bearing; prompt
-agents skip those fields and live as pure config. The extension's service
-target fans out internally: it builds and pushes each code-bearing agent,
-then posts every agent's `createAgentVersion` to Foundry. Non-Foundry
-services (Container Apps, App Service, etc.) coexist as additional
-top-level `services:` entries and use the standard `uses:` for ordering.
+`microsoft.foundry`. That entry carries all Foundry-scoped state as
+**direct top-level properties** of the service (no `config:` indirection):
+model deployments, project connections, toolboxes, skills, routines, and
+every agent definition. Each agent nests its own `project:`/`runtime:`/`docker:`/`startupCommand:` when code-bearing; prompt agents skip those
+fields and live as pure config. The extension's service target fans out
+internally: it builds and pushes each code-bearing agent, then posts every
+agent's `createAgentVersion` to Foundry. Non-Foundry services (Container
+Apps, App Service, etc.) coexist as additional top-level `services:`
+entries and use the standard `uses:` for ordering.
 
 ## Architectural decisions
 
 | Decision | Choice | Why |
 |---|---|---|
 | Scope | Foundry-specific changes to azd core, not a generic data-plane primitive | Smaller blast radius. Foundry team owns the new host kind's schema. Re-evaluate generalization later if other extensions need it. |
-| Where Foundry state lives in `azure.yaml` | Inside `services.<name>.config:` of a single entry with `host: microsoft.foundry` | A Foundry project is one logical thing; one service entry models it. No new top-level section. No `services:` / `foundry:` duplication. |
-| Where agent definitions live | Nested under `services.<>.config.agents.<name>` | Agents belong to a project; nesting captures the relationship. No separate top-level `agents:`. |
-| Where agent code/build lives | Nested with the agent definition (`config.agents.<>.project`, `.runtime`, `.docker`, etc.) | One entry per agent; no dual-entry, no link field. The trade-off: per-agent ops via `azd deploy <name>` are not addressable -- they route through the extension CLI (`azd ai agent deploy <name>`). |
+| Where Foundry state lives in `azure.yaml` | As direct top-level properties of a single `services:` entry with `host: microsoft.foundry` (no `config:` indirection) | A Foundry project is one logical thing; one service entry models it. Treating Foundry as a first-class host kind (not an extension-escape-via-`config:` pattern) matches how built-in azd hosts expose their first-class fields. |
+| Where agent definitions live | Nested under `services.<>.agents.<name>` | Agents belong to a project; nesting captures the relationship. No separate top-level `agents:`. |
+| Where agent code/build lives | Nested with the agent definition (`agents.<>.project`, `.runtime`, `.docker`, etc.) | One entry per agent; no dual-entry, no link field. The trade-off: per-agent ops via `azd deploy <name>` are not addressable -- they route through the extension CLI (`azd ai agent deploy <name>`). |
 | Lifecycle | `microsoft.foundry` service-target owns the full lifecycle and fans out across nested agents internally | Reuses existing service-target plumbing (ordering, telemetry, hooks). Cost: the extension implements per-agent build orchestration itself; azd core sees one service. |
 | Templating | `${VAR}` keeps existing semantics; `${{...}}` is preserved verbatim through expansion (Foundry server-side resolution) | Two distinct resolvers (azd client-side vs Foundry server-side) need to coexist without stepping on each other. |
 | Bicep on disk | Opt-in, not default | Extension carries built-in Bicep internally (azd compose pattern) for Foundry project provisioning. `azd infra gen` ejects to disk when explicit IaC is required. |
@@ -85,34 +89,48 @@ top-level `services:` entries and use the standard `uses:` for ordering.
 ### 1. Recognize `host: microsoft.foundry` in `azure.yaml`
 
 * **Problem.** The new host kind needs a JSON Schema entry so editor
-  IntelliSense + validation work, and so `config:` is `$ref`d to the
-  extension-published schema.
-* **Proposal.** Add a new conditional to `schemas/v1.0/azure.yaml.json`
-  modeled on the existing `host: azure.ai.agent` block at
-  [`schemas/v1.0/azure.yaml.json:373-388`](https://github.com/Azure/azure-dev/blob/main/schemas/v1.0/azure.yaml.json#L373-L388):
+  IntelliSense + validation work, and so the Foundry properties (which
+  live as direct service entry fields, not nested under `config:`) are
+  composed in from the extension-published schema.
+* **Proposal.** Add a new conditional to `schemas/v1.0/azure.yaml.json`.
+  Unlike the existing `host: azure.ai.agent` pattern at
+  [`schemas/v1.0/azure.yaml.json:373-388`](https://github.com/Azure/azure-dev/blob/main/schemas/v1.0/azure.yaml.json#L373-L388)
+  -- which `$ref`s the extension schema into `config:` -- this composes
+  the extension schema at the service level via `allOf`:
   ```json
   {
     "if": { "properties": { "host": { "const": "microsoft.foundry" } } },
     "then": {
-      "required": ["config"],
+      "allOf": [
+        { "$ref": "https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/cli/azd/extensions/azure.ai.agents/schemas/microsoft.foundry.json" }
+      ],
       "properties": {
-        "config": { "$ref": "https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/cli/azd/extensions/azure.ai.agents/schemas/microsoft.foundry.json" },
         "project": false,
         "runtime": false,
         "docker":  false,
-        "image":   false
+        "image":   false,
+        "config":  false
       }
     }
   }
   ```
   The service-level `project:`/`runtime:`/`docker:`/`image:` fields are
-  rejected because they belong per-agent inside `config.agents.<>`. The
-  Foundry project itself has no source code.
-* **Current state.** `ServiceConfig.Config` is `map[string]any`
-  (`pkg/project/service_config.go:62-63`) -- the nested structure parses
-  out of the box with no Go type changes. The gap is purely the JSON
+  rejected because they belong per-agent inside `agents.<>`. The Foundry
+  project itself has no source code. `config:` is also rejected -- the
+  Foundry schema is composed at the service level instead.
+* **Current state.** `ServiceConfig.AdditionalProperties` is `map[string]any`
+  with `yaml:",inline"` (`pkg/project/service_config.go:76-77`), so the
+  Foundry-specific top-level keys (`deployments`, `connections`,
+  `toolboxes`, `agents`, etc.) parse out of the box and are available to
+  the extension via the existing gRPC mapper (see
+  `pkg/project/mapper_registry.go:140-160`). The gap is purely the JSON
   Schema entry.
-* **Risk / alternative.** None significant.
+* **Risk / alternative.** None significant. If the team prefers the
+  `config:` indirection for consistency with other extensions, the
+  earlier shape (Foundry properties nested under `config:`) is a
+  one-line difference in the JSON Schema -- but loses the
+  "first-class host kind" feel and inconsistency with other built-in
+  hosts that surface properties directly.
 
 ### 2. Register a new service-target kind in the extension
 
@@ -152,8 +170,8 @@ top-level `services:` entries and use the standard `uses:` for ordering.
     artifact reference. Most contained; no core change.
   * **3b (core support for nested code-bearing units).** azd core gains a
     notion of "sub-services" -- a service that itself contains build/deploy
-    units azd can drive. Extensions declare which keys in their `config:`
-    represent sub-services. Cleaner UX (per-agent progress, telemetry,
+    units azd can drive. Extensions declare which keys at their service
+    level represent sub-services. Cleaner UX (per-agent progress, telemetry,
     failure attribution) but a meaningful new core concept.
 * **Recommendation.** **3a for v1** to avoid blocking on core; revisit 3b
   if per-agent observability becomes a real pain point.
@@ -181,7 +199,7 @@ top-level `services:` entries and use the standard `uses:` for ordering.
   helper so any future extension that touches Foundry config behaves
   identically.
 * **Risk / alternative.** If the extension owns all expansion of the
-  Foundry `config:` block, no core change needed. Worth aligning on the
+  Foundry-block fields, no core change needed. Worth aligning on the
   convention before two extensions write divergent expanders.
 
 ### 5. Deprecate `host: azure.ai.agent`
@@ -202,7 +220,8 @@ top-level `services:` entries and use the standard `uses:` for ordering.
 
 ### 1. Publish `microsoft.foundry.json` schema
 
-Owns the entire `config:` block for `host: microsoft.foundry`:
+Owns the full schema for `host: microsoft.foundry` services -- composed
+at the service entry level via `allOf` (see core change #1):
 
 ```jsonc
 {
@@ -246,7 +265,7 @@ New file: `cli/azd/extensions/azure.ai.agents/internal/project/service_target_fo
 
 | Method | Behavior |
 |---|---|
-| `Initialize` | Validate the full `config:` block; ensure agent kinds, deploy-mode mutual exclusion, named toolbox/skill/connection references resolve. |
+| `Initialize` | Validate the full Foundry schema on the service entry; ensure agent kinds, deploy-mode mutual exclusion, named toolbox/skill/connection references resolve. |
 | `Package` | For each `config.agents.<>` with code (has `project:`), build per its `runtime:` (zip) or `docker:` (image). Internal fan-out across agents. |
 | `Publish` | Push each agent's artifact (Foundry blob upload for zip; ACR push for image). |
 | `Deploy` | (a) Reconcile project-level state -- deployments, connections, toolboxes, skills, routines, prompt agents -- via Foundry APIs. (b) For each agent (hosted or prompt), post `createAgentVersion` with the published artifact reference (where applicable). |
@@ -263,7 +282,7 @@ Generate the consolidated `azure.yaml` with one `host: microsoft.foundry`
 service entry. Stop emitting `agent.yaml` / `agent.manifest.yaml`. The
 ~200 lines in `internal/cmd/init.go` (`extractToolboxAndConnectionConfigs`
 line 3329, `extractConnectionConfigs` line 3531) collapse into "write
-directly to the Foundry service's `config:` block."
+directly to the Foundry service's top-level fields."
 
 ### 5. Deprecation fallback
 
@@ -306,7 +325,7 @@ users' hands.
 
 | Area | What is missing | Where |
 |---|---|---|
-| azd core | JSON Schema conditional for `host: microsoft.foundry` `config:` block (with project/runtime/docker/image disabled at service level) | `schemas/v1.0/azure.yaml.json` |
+| azd core | JSON Schema conditional for `host: microsoft.foundry` composing the extension schema at service level (with project/runtime/docker/image/config disabled) | `schemas/v1.0/azure.yaml.json` |
 | azd core | (Optional, 3b only) Sub-service concept for nested code-bearing units inside a service-target | `pkg/project/*` |
 | azd core | `${{...}}` preservation in `ExpandableString.Envsubst` (or convention if extension owns expansion) | `pkg/osutil/expandable_string.go:29-30` |
 | `azure.ai.agents` | `microsoft.foundry.json` schema (new) | `cli/azd/extensions/azure.ai.agents/schemas/microsoft.foundry.json` |
@@ -317,7 +336,7 @@ users' hands.
 | `azure.ai.agents` | Routines schema + reconciliation | new (depends on routines schema decision) |
 | `azure.ai.agents` | Deprecation fallback path + telemetry for `host: azure.ai.agent` and old files | `internal/cmd/init.go`, `internal/project/service_target_agent.go`, telemetry call sites |
 | Tooling | Foundry Toolkit for VS Code parser switch from `agent.yaml` to `azure.yaml` | Toolkit team, not in this repo |
-| Composition (#8049) | `azd ai project add connection\|model\|toolbox\|skill\|agent` command family writing into the Foundry service's `config:` block | new commands, shared YAML-edit engine |
+| Composition (#8049) | `azd ai project add connection\|model\|toolbox\|skill\|agent` command family writing directly to the Foundry service's top-level fields | new commands, shared YAML-edit engine |
 
 ## Open questions (decisions the team needs to make)
 
@@ -341,9 +360,10 @@ users' hands.
    shape -- needs validation against the existing `azure.ai.routines`
    extension and the Foundry product spec.
 7. **Idempotency / state management.** When `azd deploy` runs repeatedly,
-   does the Foundry service-target diff `config:` against live Foundry
+   does the Foundry service-target diff declared state against live Foundry
    state and apply incremental changes, or recreate? When a user removes
-   an entry from `config:`, does the next deploy delete it from Foundry?
+   an entry from the Foundry service, does the next deploy delete it from
+   Foundry?
    **Recommendation: Bicep-like semantics: "drop from config = stop using,
    not destroy"** (consistent with #8049). Destructive operations route
    through `azd down` or per-resource `az` CLI commands. Needs explicit
