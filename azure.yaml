@@ -120,7 +120,7 @@ services:
             - research-agent: questions requiring deep research
           Respond with JSON: {"route": "<agent-name>", "reason": "..."}
         env:
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 
       # ---- Prompt agent backed by a skill ----
       summarizer-agent:
@@ -128,7 +128,7 @@ services:
         description: Summarizes a batch of support tickets into actionable insights
         skill: triage
         env:
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 
       # ---- Hosted agent: code-deploy mode (runtime: present, no Dockerfile) ----
       support-agent:
@@ -143,7 +143,7 @@ services:
           - { protocol: responses, version: "1.0.0" }
         toolboxes: [support-toolbox]
         env:
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
         container:
           resources: { cpu: "0.5", memory: "1Gi" }
 
@@ -162,7 +162,7 @@ services:
           - { protocol: responses, version: "1.0.0" }
         toolboxes: [research-toolbox]
         env:
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
           GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
           TAVILY_API_KEY:   ${{connections.tavily-mcp-conn.credentials.key}}
         container:
@@ -183,7 +183,7 @@ services:
       remoteBuild: true
     uses: [support-platform]
     env:
-      AZURE_AI_PROJECT_ENDPOINT: ${AZURE_AI_PROJECT_ENDPOINT}
+      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
       SUPPORT_AGENT_NAME: support-agent
       RESEARCH_AGENT_NAME: research-agent
       TRIAGE_AGENT_NAME:  triage-agent

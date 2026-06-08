@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const PROJECT_ENDPOINT = mustGetenv("AZURE_AI_PROJECT_ENDPOINT");
+const PROJECT_ENDPOINT = mustGetenv("FOUNDRY_PROJECT_ENDPOINT");
 const TRIAGE_AGENT = process.env.TRIAGE_AGENT_NAME ?? "triage-agent";
 const SUPPORT_AGENT = process.env.SUPPORT_AGENT_NAME ?? "support-agent";
 const RESEARCH_AGENT = process.env.RESEARCH_AGENT_NAME ?? "research-agent";

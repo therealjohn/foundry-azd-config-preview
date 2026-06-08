@@ -168,7 +168,7 @@ agents:
     instructions: |
       You are a triage agent...
     env:
-      AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 Hosted agent (code-deploy mode):
@@ -183,7 +183,7 @@ agents:
     startupCommand: python main.py
     protocols: [{ protocol: responses, version: "1.0.0" }]
     toolboxes: [support-toolbox]
-    env: { AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1 }
+    env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1 }
     container: { resources: { cpu: "0.5", memory: "1Gi" } }
 ```
 
@@ -198,7 +198,7 @@ agents:
     protocols: [{ protocol: responses, version: "1.0.0" }]
     toolboxes: [research-toolbox]
     env:
-      AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
       # ${{...}} is Foundry server-side resolution. azd does NOT expand it.
       GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
       TAVILY_API_KEY:   ${{connections.tavily-mcp-conn.credentials.key}}
