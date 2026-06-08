@@ -54,7 +54,7 @@ services:
           - { protocol: responses, version: "1.0.0" }
         startupCommand: python main.py
         env:
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
         container:
           resources: { cpu: "0.25", memory: "0.5Gi" }
 ```
