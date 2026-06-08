@@ -93,7 +93,7 @@ services:
         docker: { path: Dockerfile, remoteBuild: true }
         protocols: [{ protocol: responses, version: "1.0.0" }]
         env:
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 ### Multiple agents
@@ -112,13 +112,13 @@ services:
         project: src/support-agent
         runtime: { stack: python, version: "3.12" }
         protocols: [{ protocol: responses, version: "1.0.0" }]
-        env: { AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
+        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
       research-agent:
         kind: hosted
         project: src/research-agent
         docker: { path: Dockerfile, remoteBuild: true }
         protocols: [{ protocol: responses, version: "1.0.0" }]
-        env: { AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
+        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
 ```
 
 ### Prompt-only agent
@@ -143,7 +143,7 @@ services:
           support-agent, research-agent. Respond with JSON:
           {"route": "<agent-name>", "reason": "..."}
         env:
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 ### Mixed: hosted + prompt agents
@@ -164,13 +164,13 @@ services:
         kind: prompt
         instructions: |
           You are a triage agent...
-        env: { AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
+        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
       support-agent:               # hosted, has code
         kind: hosted
         project: src/support-agent
         runtime: { stack: python, version: "3.12" }
         protocols: [{ protocol: responses, version: "1.0.0" }]
-        env: { AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1 }
+        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1 }
 ```
 
 ---
@@ -179,7 +179,7 @@ services:
 
 ### New Foundry project (default)
 
-No `existing:` field -- `azd provision` creates a new Foundry project
+No `endpoint:` field -- `azd provision` creates a new Foundry project
 (via in-memory Bicep, the `azd compose` pattern). Account, resource group,
 and project name come from the azd environment.
 
@@ -192,17 +192,16 @@ services:
 
 ### Reference an existing Foundry project
 
-Use this when the Foundry project was provisioned outside azd (Portal,
-Bicep elsewhere, or by another team). `azd provision` skips ARM
-provisioning and connects to the existing endpoint; `azd deploy` only
-reconciles data-plane state and pushes agents.
+Set `endpoint:` -- its **presence** is the signal that the project
+already exists. `azd provision` skips ARM provisioning and connects to
+the existing endpoint; `azd deploy` only reconciles data-plane state and
+pushes agents.
 
 ```yaml
 services:
   my-project:
     host: microsoft.foundry
-    existing: true
-    endpoint: ${AZURE_AI_PROJECT_ENDPOINT}    # set in .azure/<env>/.env
+    endpoint: ${FOUNDRY_PROJECT_ENDPOINT}    # set in .azure/<env>/.env
     # ... deployments, agents, etc.
 ```
 
@@ -221,19 +220,24 @@ deployments:
 
 ### Reference an existing model deployment
 
-Deployment already exists on the Foundry project (created via Portal or
-another tool). azd verifies presence at deploy time but does not create
-or update it.
+The deployment already exists on the Foundry project (created via Portal,
+`az`, or another tool). **Don't declare it in `azure.yaml`.** Just
+reference it by name where it's used -- the extension verifies presence
+at deploy time. Nothing for azd to manage.
 
 ```yaml
-deployments:
-  - name: gpt-4.1
-    existing: true
+# No deployments: entry needed.
+agents:
+  my-agent:
+    kind: hosted
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: existing-shared-model
 ```
 
 ### Multiple deployments
 
-Mix new and existing freely:
+Declare every deployment azd should create or upsert. Anything not
+declared but referenced by name is treated as existing.
 
 ```yaml
 deployments:
@@ -246,8 +250,8 @@ deployments:
   - name: text-embedding-3-small
     model: { format: OpenAI, name: text-embedding-3-small, version: "1" }
     sku:   { name: Standard, capacity: 10 }
-  - name: shared-batch-model
-    existing: true                  # provisioned by another team
+# `shared-batch-model` exists on the project (provisioned by another team)
+# and is just referenced by name from any agent that needs it -- not declared here.
 ```
 
 ---
@@ -303,16 +307,17 @@ connections:
 ### Reference an existing connection
 
 Connection was created externally (Portal, `az cognitiveservices account
-project connection create`, Foundry Toolkit). azd does not touch the
-credential -- it just trusts the name resolves at deploy.
+project connection create`, Foundry Toolkit). **Don't declare it in
+`azure.yaml`.** Just reference by name from toolboxes or agents -- the
+extension verifies presence at deploy.
 
 ```yaml
-connections:
-  - name: shared-mcp-conn
-    existing: true
+# No connections: entry needed.
+toolboxes:
+  research-toolbox:
+    tools:
+      - { type: mcp, connection: shared-mcp-conn }   # references existing connection
 ```
-
-Agents and toolboxes reference it by name as usual.
 
 ---
 
@@ -351,20 +356,17 @@ toolboxes:
 ### Reference an existing toolbox
 
 Toolbox already exists on the Foundry project (e.g., created via
-`azd ai toolbox create` or the Portal).
+`azd ai toolbox create` or the Portal). **Don't declare it in
+`azure.yaml`.** Reference by name from any agent.
 
 ```yaml
-toolboxes:
-  shared-toolbox:
-    existing: true
-```
-
-Agents reference it the same way as new toolboxes:
-
-```yaml
+# No toolboxes: entry needed.
 agents:
   my-agent:
-    toolboxes: [shared-toolbox]
+    kind: hosted
+    project: src/my-agent
+    docker: { path: Dockerfile, remoteBuild: true }
+    toolboxes: [shared-toolbox]                  # references existing toolbox
 ```
 
 ### Toolbox shared across multiple agents
@@ -485,10 +487,14 @@ skills:
 
 ### Reference an existing skill
 
+**Don't declare it in `azure.yaml`.** Reference by name from any agent.
+
 ```yaml
-skills:
-  shared-skill:
-    existing: true
+# No skills: entry needed.
+agents:
+  my-agent:
+    kind: prompt
+    skill: shared-skill                          # references existing skill
 ```
 
 ### Agent using a skill
@@ -502,7 +508,7 @@ agents:
   triage-agent:
     kind: prompt
     skill: triage                                # reference by name
-    env: { AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
+    env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
 ```
 
 ---
@@ -704,15 +710,13 @@ agents:
 
 ### Foundry-managed secrets (no on-disk secret)
 
-Combine `existing: true` on the connection (created externally) with
-`${{...}}` on the consuming agent's env. The developer never sees or
-stores the secret -- it lives only in Foundry.
+When the connection was created externally (e.g., via `az` CLI or the
+Portal), **don't declare it in `azure.yaml`** -- just reference it from
+the consuming agent's env via `${{...}}`. Foundry resolves the credential
+server-side at runtime. The developer never sees or stores the secret.
 
 ```yaml
-connections:
-  - name: github-mcp-conn
-    existing: true                            # created via az CLI / Portal
-
+# No connections: entry needed -- github-mcp-conn exists on the Foundry project.
 agents:
   my-agent:
     kind: hosted
@@ -749,6 +753,6 @@ services:
     docker: { path: Dockerfile, remoteBuild: true }
     uses: [my-project]                         # deploy after Foundry project
     env:
-      AZURE_AI_PROJECT_ENDPOINT: ${AZURE_AI_PROJECT_ENDPOINT}
+      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
       AGENT_NAME: api-agent
 ```
