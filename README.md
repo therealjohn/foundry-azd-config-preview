@@ -39,24 +39,24 @@ name: basic-foundry-agent
 services:
   agent-project:
     host: microsoft.foundry            # new host kind: Foundry project is the service
-    config:
-      deployments:                     # project-scoped model deployments
-        - name: gpt-4.1-mini
-          model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-          sku:   { name: GlobalStandard, capacity: 10 }
 
-      agents:                          # ALL agent definitions nest here
-        basic-agent:                   # the one agent in this project
-          kind: hosted
-          project: src/basic-agent     # per-agent source dir (NOT the service's)
-          docker: { path: Dockerfile, remoteBuild: true }
-          protocols:
-            - { protocol: responses, version: "1.0.0" }
-          startupCommand: python main.py
-          env:
-            AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
-          container:
-            resources: { cpu: "0.25", memory: "0.5Gi" }
+    deployments:                       # project-scoped model deployments
+      - name: gpt-4.1-mini
+        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
+        sku:   { name: GlobalStandard, capacity: 10 }
+
+    agents:                            # ALL agent definitions nest here
+      basic-agent:                     # the one agent in this project
+        kind: hosted
+        project: src/basic-agent       # per-agent source dir (NOT the service's)
+        docker: { path: Dockerfile, remoteBuild: true }
+        protocols:
+          - { protocol: responses, version: "1.0.0" }
+        startupCommand: python main.py
+        env:
+          AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+        container:
+          resources: { cpu: "0.25", memory: "0.5Gi" }
 ```
 
 ### Why one service entry for the whole Foundry project
@@ -64,14 +64,15 @@ services:
 The service IS the Foundry project. The Foundry project owns model
 deployments, connections, toolboxes, agents -- they are not separate
 services in azd's sense. They are state inside one project. So one azd
-service maps to one Foundry project, and everything Foundry-scoped nests
-under that service's `config:` block.
+service maps to one Foundry project, and everything Foundry-scoped is a
+direct property of that service entry -- no `config:` indirection.
 
-This is the same pattern existing host kinds use today
-(`services.<>.host: containerapp` carries Container Apps-specific data
-inside `config:` per the extension's schema). `host: microsoft.foundry` is
-just another host kind with its own schema -- one published by the
-`azure.ai.agents` extension.
+This is the same pattern existing host kinds use today for their first-class
+fields. `host: microsoft.foundry` is just another host kind with its own
+schema published by the `azure.ai.agents` extension. The Foundry schema
+slice is composed at the service-entry level (no `config:` indirection),
+the same way `host: containerapp` exposes container-app-shaped fields
+directly on the service.
 
 ### Per-agent fields
 
@@ -92,14 +93,13 @@ Deploy mode discrimination is identical to other azd hosts:
 ## Lifecycle
 
 The `microsoft.foundry` service-target fans out internally across the
-agents nested in its config:
+agents nested in the service entry:
 
 * `azd provision` -- creates the Foundry project (ARM, in-memory Bicep) and
   the model deployments.
 * `azd deploy agent-project` --
   * reconciles project-level data-plane state (deployments, connections,
-    toolboxes, etc. -- just deployments in this sample)
-  * for each agent with code (`basic-agent` here), builds + pushes the
+    toolboxes, etc. -- just deployments in this sample)  * for each agent with code (`basic-agent` here), builds + pushes the
     artifact, then posts the agent definition to Foundry's
     `createAgentVersion` API
 * `azd up` -- both.
