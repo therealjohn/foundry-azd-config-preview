@@ -2,21 +2,21 @@
 
 A realistic multi-agent platform under the **collapsed shape**: one
 `host: microsoft.foundry` service entry holds the entire Foundry project,
-agents nested in `config:`. Plus a separate non-Foundry Container Apps
-frontend.
+with all Foundry-scoped state as direct properties of the service. Plus a
+separate non-Foundry Container Apps frontend.
 
 ## What this sample demonstrates
 
 * **One service entry per Foundry project.** All Foundry-scoped state --
-  deployments, connections, toolboxes, skills, routines, agents -- nests
-  under `services.support-platform.config:`. The service IS the Foundry
-  project.
+  deployments, connections, toolboxes, skills, routines, agents -- are
+  direct properties of `services.support-platform`. No `config:`
+  indirection. The service IS the Foundry project.
 * **Two hosted agents in different deploy modes**, nested with their code:
   * `support-agent` -- code-deploy via `runtime:` (zip upload)
   * `research-agent` -- container mode via `docker:` (Dockerfile in repo)
 * **Two prompt agents** -- pure config, no source dir, no docker/runtime:
   * `triage-agent` -- inline `instructions:` string
-  * `summarizer-agent` -- references `config.skills.triage`
+  * `summarizer-agent` -- references `skills.triage`
 * **Two named toolboxes** shared across agents
 * **Three connection types** (CustomKeys + ApiKey + ProjectManagedIdentity)
 * **Three model deployments** (chat large, chat mini, embeddings)
@@ -66,34 +66,39 @@ frontend.
 services:
   support-platform:           # Foundry project
     host: microsoft.foundry
-    config: { ... }           # everything Foundry-scoped here
+    deployments: [...]        # everything Foundry-scoped is a direct service property
+    agents:      [...]
   webapp:                     # non-Foundry frontend
     host: containerapp
     uses: [support-platform]  # deploy after the Foundry project
 ```
 
-### Inside `config.deployments`
+### `deployments`
 
 ```yaml
-deployments:
-  - name: gpt-4.1
-    model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
-    sku:   { name: GlobalStandard, capacity: 50 }
+services:
+  support-platform:
+    deployments:
+      - name: gpt-4.1
+        model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
+        sku:   { name: GlobalStandard, capacity: 50 }
 ```
 
 Project-scoped model deployments. Reconciled via Foundry APIs.
 Drop-from-config is non-destructive.
 
-### Inside `config.connections`
+### `connections`
 
 ```yaml
-connections:
-  - name: github-mcp-conn
-    category: CustomKeys
-    target: https://api.githubcopilot.com/mcp
-    authType: CustomKeys
-    credentials:
-      x-api-key: ${GITHUB_MCP_TOKEN}        # ${VAR} = azd env expansion
+services:
+  support-platform:
+    connections:
+      - name: github-mcp-conn
+        category: CustomKeys
+        target: https://api.githubcopilot.com/mcp
+        authType: CustomKeys
+        credentials:
+          x-api-key: ${GITHUB_MCP_TOKEN}        # ${VAR} = azd env expansion
 ```
 
 Two secret modes shown:
@@ -101,47 +106,53 @@ Two secret modes shown:
 1. **azd-environment-managed** -- `${ENV_VAR}` resolved client-side
 2. **Foundry-managed identity** -- `authType: ProjectManagedIdentity`, no secret on disk
 
-### Inside `config.toolboxes`
+### `toolboxes`
 
 ```yaml
-toolboxes:
-  research-toolbox:
-    tools:
-      - { type: web_search }
-      - { type: mcp,             connection: github-mcp-conn }
-      - { type: mcp,             connection: tavily-mcp-conn }
-      - { type: azure_ai_search, connection: azure-search-conn }
+services:
+  support-platform:
+    toolboxes:
+      research-toolbox:
+        tools:
+          - { type: web_search }
+          - { type: mcp,             connection: github-mcp-conn }
+          - { type: mcp,             connection: tavily-mcp-conn }
+          - { type: azure_ai_search, connection: azure-search-conn }
 ```
 
-Named toolboxes; agents reference by name in `config.agents.<>.toolboxes`.
+Named toolboxes; agents reference by name in `agents.<>.toolboxes`.
 
-### Inside `config.skills`
+### `skills`
 
 ```yaml
-skills:
-  code-review:
-    description: Reviews code for bugs and style issues
-    instructions: ./prompts/code-review.md
-    tools: [file_search, code_interpreter]
+services:
+  support-platform:
+    skills:
+      code-review:
+        description: Reviews code for bugs and style issues
+        instructions: ./prompts/code-review.md
+        tools: [file_search, code_interpreter]
 ```
 
 `instructions:` accepts a string (inline) or a file path. File-backed is
 git-diff friendly.
 
-### Inside `config.routines`
+### `routines`
 
 ```yaml
-routines:
-  nightly-ticket-summary:
-    trigger: { type: schedule, cron: "0 8 * * *" }
-    agent: summarizer-agent
-    input:
-      ticket_source: ${TICKET_SOURCE_URL}
+services:
+  support-platform:
+    routines:
+      nightly-ticket-summary:
+        trigger: { type: schedule, cron: "0 8 * * *" }
+        agent: summarizer-agent
+        input:
+          ticket_source: ${TICKET_SOURCE_URL}
 ```
 
 Scheduled or event-driven agent invocations.
 
-### Inside `config.agents`
+### `agents`
 
 Each agent carries both its Foundry definition and (for hosted agents) its
 code/build settings in **one entry**. No separate services: per-agent, no
@@ -215,8 +226,8 @@ agents:
      environment + ACR for the webapp.
 2. `azd deploy`
    * **support-platform** (Foundry project service):
-     * reconciles `config.deployments`, `config.connections`,
-       `config.toolboxes`, `config.skills`, `config.routines` via Foundry APIs
+     * reconciles `deployments`, `connections`, `toolboxes`, `skills`,
+       `routines` via Foundry APIs
      * builds + uploads zip for `support-agent` (runtime: mode)
      * builds + pushes container for `research-agent` (docker: mode)
      * posts `createAgentVersion` for every agent (4 total: 2 prompt + 2 hosted)
@@ -249,7 +260,7 @@ azd ai project add agent triage-agent --kind prompt
 azd ai project add skill code-review --instructions ./prompts/code-review.md
 ```
 
-Each command edits the `azure.yaml` Foundry service's `config:` block,
+Each command edits the Foundry service's properties in `azure.yaml`,
 externalizes credentials to the azd environment, and prints what code or
 follow-up steps remain.
 
@@ -257,6 +268,6 @@ follow-up steps remain.
 
 * [`simple`](../../tree/simple) -- minimum viable Foundry project
 * [`main`](../../tree/main) -- repo overview, decision rationale, and
-  engineering brief
+  engineering brief; also `REFERENCE.md` with copy-pasteable snippets
 * [#7962](https://github.com/Azure/azure-dev/issues/7962) -- unified-config proposal
 * [#8049](https://github.com/Azure/azure-dev/issues/8049) -- composition commands
