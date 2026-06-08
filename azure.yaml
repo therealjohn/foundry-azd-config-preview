@@ -4,53 +4,43 @@ name: basic-foundry-agent
 metadata:
   template: azd-init@1.21.0
 
-# The new top-level `foundry:` section. Owned by the azure.ai.agents
-# extension's published schema. Contains everything that maps to Foundry
-# data-plane APIs.
-foundry:
-  # Model deployments created on the Foundry project at provision time.
-  deployments:
-    - name: gpt-4.1-mini
-      model:
-        format: OpenAI
-        name: gpt-4.1-mini
-        version: "2025-04-14"
-      sku:
-        name: GlobalStandard
-        capacity: 10
-
-  # All agent definitions live here. Maps directly to Foundry's
-  # createAgentVersion API contract. This is the source of truth for what
-  # the agent IS to Foundry.
-  agents:
-    basic-agent:
-      kind: hosted
-      description: A basic Agent Framework agent hosted by Foundry.
-      protocols:
-        - { protocol: responses, version: "1.0.0" }
-      env:
-        AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
-
-# The `services:` section keeps doing what it is good at: source directory,
-# build mode (docker: vs runtime:), packaging, deploy. Only present for
-# code-bearing agents.
 services:
-  basic-agent-code:
-    project: src/basic-agent
-    host: azure.ai.agent
-    runtime:
-      stack: python
-      version: "3.12"
-    docker:
-      path: Dockerfile
-      remoteBuild: true
+  # A Foundry project IS the service. Everything Foundry-related -- model
+  # deployments, connections, toolboxes, skills, routines, and the agents
+  # themselves -- nests under this single entry's `config:` block.
+  #
+  # New host kind: `microsoft.foundry`. The extension's service-target
+  # owns the full lifecycle (provision the Foundry project, reconcile
+  # project state, build + push each agent's code, post agent definitions).
+  agent-project:
+    host: microsoft.foundry
     config:
-      # L2 link: this service backs the foundry.agents.basic-agent definition.
-      # On `azd deploy basic-agent-code`, the extension builds + pushes the
-      # container, then posts the agent definition to Foundry's
-      # createAgentVersion API.
-      agent: basic-agent
-      container:
-        resources:
-          cpu: "0.25"
-          memory: "0.5Gi"
+      deployments:
+        - name: gpt-4.1-mini
+          model:
+            format: OpenAI
+            name: gpt-4.1-mini
+            version: "2025-04-14"
+          sku:
+            name: GlobalStandard
+            capacity: 10
+
+      agents:
+        # Hosted agent: definition + code/build colocated in the same entry.
+        # No separate services: entry, no link field.
+        basic-agent:
+          kind: hosted
+          description: A basic Agent Framework agent hosted by Foundry.
+          project: src/basic-agent
+          docker:
+            path: Dockerfile
+            remoteBuild: true
+          protocols:
+            - { protocol: responses, version: "1.0.0" }
+          startupCommand: python main.py
+          env:
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+          container:
+            resources:
+              cpu: "0.25"
+              memory: "0.5Gi"

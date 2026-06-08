@@ -1,8 +1,7 @@
 # Basic Hosted Agent (Unified `azure.yaml`)
 
-The minimum a Foundry agent project can be after the unified-config changes
-in [Azure/azure-dev#7962](https://github.com/Azure/azure-dev/issues/7962):
-**one agent, one model, one `azure.yaml`**.
+The minimum a Foundry agent project can be after the unified-config
+changes: **one agent, one model, one `azure.yaml`, one service entry**.
 
 ## What `azd ai agent init` produced
 
@@ -27,75 +26,92 @@ What is **not** here vs. today's shape:
 * No `infra/` directory and no Bicep on disk (the extension carries built-in
   Bicep internally, generated in-memory during `azd provision`; the azd
   compose pattern)
-* No three places to update the agent name
+* No three places to update the agent name -- the agent definition lives in
+  exactly one place
 
 ## The `azure.yaml` -- annotated
 
-See [`azure.yaml`](./azure.yaml). The whole file is ~35 lines:
+See [`azure.yaml`](./azure.yaml). The whole file is ~40 lines:
 
 ```yaml
 name: basic-foundry-agent
 
-foundry:
-  deployments:
-    - name: gpt-4.1-mini
-      model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-      sku:   { name: GlobalStandard, capacity: 10 }
-
-  agents:
-    basic-agent:
-      kind: hosted
-      description: A basic Agent Framework agent hosted by Foundry.
-      protocols:
-        - { protocol: responses, version: "1.0.0" }
-      env:
-        AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
-
 services:
-  basic-agent-code:
-    project: src/basic-agent
-    host: azure.ai.agent
-    runtime: { stack: python, version: "3.12" }
-    docker:  { path: Dockerfile, remoteBuild: true }
+  agent-project:
+    host: microsoft.foundry            # new host kind: Foundry project is the service
     config:
-      agent: basic-agent
-      container:
-        resources: { cpu: "0.25", memory: "0.5Gi" }
+      deployments:                     # project-scoped model deployments
+        - name: gpt-4.1-mini
+          model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
+          sku:   { name: GlobalStandard, capacity: 10 }
+
+      agents:                          # ALL agent definitions nest here
+        basic-agent:                   # the one agent in this project
+          kind: hosted
+          project: src/basic-agent     # per-agent source dir (NOT the service's)
+          docker: { path: Dockerfile, remoteBuild: true }
+          protocols:
+            - { protocol: responses, version: "1.0.0" }
+          startupCommand: python main.py
+          env:
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+          container:
+            resources: { cpu: "0.25", memory: "0.5Gi" }
 ```
 
-### What `foundry:` owns
+### Why one service entry for the whole Foundry project
 
-* `deployments` -- Foundry model deployments. Created via Foundry APIs during
-  the data-plane reconcile phase.
-* `agents.basic-agent` -- the agent definition that maps to Foundry's
-  `createAgentVersion` API. For prompt agents this would also carry
-  `instructions:`; for hosted agents (as here) the runtime image *is* the
-  instructions, so we just declare the protocols and env injection.
+The service IS the Foundry project. The Foundry project owns model
+deployments, connections, toolboxes, agents -- they are not separate
+services in azd's sense. They are state inside one project. So one azd
+service maps to one Foundry project, and everything Foundry-scoped nests
+under that service's `config:` block.
 
-### What `services:` owns
+This is the same pattern existing host kinds use today
+(`services.<>.host: containerapp` carries Container Apps-specific data
+inside `config:` per the extension's schema). `host: microsoft.foundry` is
+just another host kind with its own schema -- one published by the
+`azure.ai.agents` extension.
 
-* `project`, `runtime`, `docker` -- the standard azd service primitives. No
-  Foundry-specific stretching of the services model.
-* `config.agent: basic-agent` -- the **L2 link**. Tells the extension which
-  `foundry.agents` entry this service backs.
-* `config.container.resources` -- the runtime container's CPU/memory.
+### Per-agent fields
 
-`host: azure.ai.agent` is the existing dispatch discriminator for the
-extension. It does not change in this proposal.
+Each entry under `config.agents.<name>` carries both the agent's Foundry
+definition AND its code/build settings:
+
+| Field | Belongs to |
+|---|---|
+| `kind`, `description`, `protocols`, `env`, `container` | Foundry agent definition (sent to `createAgentVersion`) |
+| `project`, `runtime` OR `docker`, `startupCommand` | Code/build settings (standard azd primitives, scoped per-agent) |
+
+Deploy mode discrimination is identical to other azd hosts:
+
+* `docker:` present -> container mode (Dockerfile in source dir)
+* `runtime:` present -> code-deploy mode (zip upload, no Dockerfile)
+* Both / neither -> validation error
 
 ## Lifecycle
 
+The `microsoft.foundry` service-target fans out internally across the
+agents nested in its config:
+
 * `azd provision` -- creates the Foundry project (ARM, in-memory Bicep) and
   the model deployments.
-* `azd deploy` -- the extension's synthesized project-level service-target
-  reconciles `foundry:` state (data-plane), then `basic-agent-code` builds +
-  pushes its container and posts the agent definition to Foundry.
+* `azd deploy agent-project` --
+  * reconciles project-level data-plane state (deployments, connections,
+    toolboxes, etc. -- just deployments in this sample)
+  * for each agent with code (`basic-agent` here), builds + pushes the
+    artifact, then posts the agent definition to Foundry's
+    `createAgentVersion` API
 * `azd up` -- both.
 * `azd down` -- deletes the Foundry project (takes deployments with it).
+* Per-agent operations (`azd ai agent deploy basic-agent`) route through
+  the extension CLI -- the standard `azd deploy <service>` addresses the
+  whole Foundry project, not individual agents.
 
 ## See also
 
 * The [`complex`](../../tree/complex) branch shows the same shape scaled to
   multiple agents (hosted + prompt), shared toolboxes, MCP connections,
   skills, routines, and a non-Foundry Container Apps frontend.
-* The repo [`main`](../../tree/main) README has the decision rationale.
+* The [`main`](../../tree/main) branch README has decision rationale and
+  the engineering brief for the `azure.ai.agents` team.
