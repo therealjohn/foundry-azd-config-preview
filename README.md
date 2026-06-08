@@ -6,16 +6,16 @@ consolidates Foundry agent project configuration. Pairs with the open RFCs:
 * [Azure/azure-dev#7962](https://github.com/Azure/azure-dev/issues/7962) -- Unify Foundry agent configuration in `azure.yaml`
 * [Azure/azure-dev#8049](https://github.com/Azure/azure-dev/issues/8049) -- Composition commands (`azd ai project add ...`)
 
-The CLI changes that produce these files have not shipped. The Python in the
-sample branches is illustrative -- it would compile and run against a real
-Foundry endpoint, but most logic is stubbed.
+The CLI changes that produce these files have not shipped. The Python in
+the sample branches is illustrative -- it would compile and run against a
+real Foundry endpoint, but most logic is stubbed.
 
 ## Branches
 
 | Branch | Demonstrates |
 |---|---|
-| [`simple`](../../tree/simple) | One hosted agent + one model deployment. ~35-line `azure.yaml`. The minimum a Foundry project can be. |
-| [`complex`](../../tree/complex) | Multi-agent platform: hosted + prompt agents, both `runtime:`/`docker:` deploy modes, toolboxes with web search / code interpreter / MCP / Azure AI Search, three connection types (incl. `${{...}}` server-side resolution), 3 model deployments, 2 file-backed skills, a scheduled routine, and a non-Foundry Container Apps frontend that consumes the agents. |
+| [`simple`](../../tree/simple) | One hosted agent + one model deployment under a single `host: microsoft.foundry` service entry. ~40-line `azure.yaml`. The minimum a Foundry project can be. |
+| [`complex`](../../tree/complex) | Multi-agent platform: 2 hosted + 2 prompt agents (both `runtime:`/`docker:` deploy modes shown), shared toolboxes with web search / code interpreter / MCP / Azure AI Search, three connection types (incl. `${{...}}` server-side resolution), 3 model deployments, 2 file-backed skills, a scheduled routine, all nested in one Foundry service entry -- plus a separate non-Foundry Container Apps frontend that consumes the agents. |
 
 ---
 
@@ -41,83 +41,130 @@ A Foundry agent project today spreads across three files with overlapping data:
 * `cli/azd/extensions/azure.ai.agents/internal/cmd/init.go` runs ~200 lines
   of reconciliation between these files
   (`extractToolboxAndConnectionConfigs`, `extractConnectionConfigs`).
-* Multiple agents that need to share a toolbox cannot: toolboxes live nested
-  under a single agent's `config:` today.
+* Multiple agents that need to share a toolbox cannot: toolboxes live
+  nested under a single agent's `config:` today.
 
 The deeper structural mismatch: `azure.yaml` was designed for Azure services
 modeled as ARM/Bicep resources. Foundry's project-scoped state (toolboxes,
 connections, model deployments, skills, agents) is **data-plane** -- created
-and reconciled via Foundry APIs, not ARM. Stretching `services:` to fit this
-(e.g. #7962's earlier `host: azure.ai.project` "service without code"
-proposal) works but conflates two different things.
+and reconciled via Foundry APIs, not ARM. The earlier proposals
+(`host: azure.ai.project` "service without code"; a top-level `foundry:`
+section that duplicated services semantics) all stretched the model in one
+direction or another. The shape here resolves the mismatch by recognizing
+that **a Foundry project IS a service** -- just one that owns nested data
+plane state and may host multiple sub-agents.
 
-## Architectural decisions (from plan-mode discussion)
+## The shape, in one paragraph
+
+One Foundry project = one entry in `services:` with a new host kind,
+`microsoft.foundry`. That entry's `config:` block carries all
+Foundry-scoped state (model deployments, project connections, toolboxes,
+skills, routines) plus every agent definition. Each agent nests its own
+`project:`/`runtime:`/`docker:`/`startupCommand:` when code-bearing; prompt
+agents skip those fields and live as pure config. The extension's service
+target fans out internally: it builds and pushes each code-bearing agent,
+then posts every agent's `createAgentVersion` to Foundry. Non-Foundry
+services (Container Apps, App Service, etc.) coexist as additional
+top-level `services:` entries and use the standard `uses:` for ordering.
+
+## Architectural decisions
 
 | Decision | Choice | Why |
 |---|---|---|
-| Scope | Foundry-specific changes to azd core, not a generic data-plane primitive | Smaller blast radius. Foundry team owns the new section's schema. Re-evaluate generalization later if other extensions need it. |
-| Where Foundry state lives in `azure.yaml` | New top-level `foundry:` section | Acknowledges data-plane state is structurally different from `services:`. Avoids the "service without code" pretense. |
-| Where agent definitions live | All in `foundry.agents.<name>` (hosted and prompt) | One uniform mental model. Both go through the same `createAgentVersion` API contract. |
-| Where code/build/deploy lives | Existing `services:`, only when an agent has code | `services:` already does this well. Don't reinvent. Prompt agents have no entry. |
-| Link between agent definition and backing service | **L2**: service-first. `services.<>.host: azure.ai.agent` + `services.<>.config.agent: <foundry-agent-name>` | Smallest azd core delta. Matches how `host:` already works. `agent:` field lives inside the extension-owned `config:` map -- no new top-level `ServiceConfig` field. |
-| Lifecycle | **D**: extension synthesizes a project-level service-target internally from the `foundry:` block | Reuses existing service-target plumbing (ordering, telemetry, hooks). User never writes `host: azure.ai.project`. No new user-facing verb. |
-| Templating | `${VAR}` keeps existing semantics; `${{...}}` is preserved verbatim through azd expansion (Foundry server-side resolution) | Two distinct resolvers (azd client-side vs Foundry server-side) need to coexist without stepping on each other. |
-| Bicep on disk | Opt-in, not default | Extension carries built-in Bicep internally (the `azd compose` pattern) for Foundry project provisioning. `azd infra gen` ejects to disk when explicit IaC is required. |
+| Scope | Foundry-specific changes to azd core, not a generic data-plane primitive | Smaller blast radius. Foundry team owns the new host kind's schema. Re-evaluate generalization later if other extensions need it. |
+| Where Foundry state lives in `azure.yaml` | Inside `services.<name>.config:` of a single entry with `host: microsoft.foundry` | A Foundry project is one logical thing; one service entry models it. No new top-level section. No `services:` / `foundry:` duplication. |
+| Where agent definitions live | Nested under `services.<>.config.agents.<name>` | Agents belong to a project; nesting captures the relationship. No separate top-level `agents:`. |
+| Where agent code/build lives | Nested with the agent definition (`config.agents.<>.project`, `.runtime`, `.docker`, etc.) | One entry per agent; no dual-entry, no link field. The trade-off: per-agent ops via `azd deploy <name>` are not addressable -- they route through the extension CLI (`azd ai agent deploy <name>`). |
+| Lifecycle | `microsoft.foundry` service-target owns the full lifecycle and fans out across nested agents internally | Reuses existing service-target plumbing (ordering, telemetry, hooks). Cost: the extension implements per-agent build orchestration itself; azd core sees one service. |
+| Templating | `${VAR}` keeps existing semantics; `${{...}}` is preserved verbatim through expansion (Foundry server-side resolution) | Two distinct resolvers (azd client-side vs Foundry server-side) need to coexist without stepping on each other. |
+| Bicep on disk | Opt-in, not default | Extension carries built-in Bicep internally (azd compose pattern) for Foundry project provisioning. `azd infra gen` ejects to disk when explicit IaC is required. |
+| Replaces `host: azure.ai.agent`? | Yes (deprecation window) | The old per-agent host kind no longer makes sense -- agents are not top-level services in this model. Keep parsing it during the deprecation window so old projects still build. |
 
 ## Required AZD core changes
 
-### 1. Recognize `foundry:` at the top level of `azure.yaml`
+### 1. Recognize `host: microsoft.foundry` in `azure.yaml`
 
-* **Problem.** The new `foundry:` section needs schema authority (for editor
-  IntelliSense and validation) and a defined location in the project model.
-* **Proposal.** Add `foundry:` to `schemas/v1.0/azure.yaml.json` as a section
-  whose value is `$ref`ed to the extension-published schema URL. Matches the
-  existing pattern for `host: azure.ai.agent` `config:` block at
-  [`schemas/v1.0/azure.yaml.json:380-384`](https://github.com/Azure/azure-dev/blob/main/schemas/v1.0/azure.yaml.json#L380-L384).
-* **Current state.** `ProjectConfig.AdditionalProperties` (`pkg/project/project_config.go:43-44`,
-  yaml `inline`) already captures unknown top-level keys, so **parsing
-  `foundry:` works today with zero core change**. The gap is purely the
-  published JSON Schema entry for IntelliSense/validation.
-* **Risk / alternative.** None significant. Add the entry now even if other
-  pieces lag.
-
-### 2. Extension capability: synthesize a project-level service-target from a top-level section
-
-* **Problem.** Lifecycle D needs the `azure.ai.agents` extension to register
-  a "virtual" service-target -- one not declared in `services:` -- so the
-  `foundry:` block gets reconciled during `azd deploy` using the existing
-  service-target plumbing (ordering, telemetry, hooks, failure semantics).
-* **Proposal.** New extension capability declaration in `extension.yaml`:
-  ```yaml
-  providers:
-    - name: azure.ai.project          # synthesized; NOT user-declared
-      type: project-service-target    # new type
-      sourceSection: foundry          # top-level azure.yaml key this drives
+* **Problem.** The new host kind needs a JSON Schema entry so editor
+  IntelliSense + validation work, and so `config:` is `$ref`d to the
+  extension-published schema.
+* **Proposal.** Add a new conditional to `schemas/v1.0/azure.yaml.json`
+  modeled on the existing `host: azure.ai.agent` block at
+  [`schemas/v1.0/azure.yaml.json:373-388`](https://github.com/Azure/azure-dev/blob/main/schemas/v1.0/azure.yaml.json#L373-L388):
+  ```json
+  {
+    "if": { "properties": { "host": { "const": "microsoft.foundry" } } },
+    "then": {
+      "required": ["config"],
+      "properties": {
+        "config": { "$ref": "https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/cli/azd/extensions/azure.ai.agents/schemas/microsoft.foundry.json" },
+        "project": false,
+        "runtime": false,
+        "docker":  false,
+        "image":   false
+      }
+    }
+  }
   ```
-  When azd loads the project, it constructs a synthetic `ServiceConfig` for
-  each extension that declared a `project-service-target` whose
-  `sourceSection` is present in `ProjectConfig.AdditionalProperties`. That
-  synthetic service participates in deploy ordering normally (deploys before
-  any `services:` entry that `uses:` it, or before all if implicit project
-  scope). The extension implements
-  `Initialize`/`Package`/`Publish`/`Deploy`/`Endpoints`/`GetTargetResource`
-  with Package and Publish as no-ops (no source code, no artifact).
-* **Current state.** Extensions register service-targets via
-  `extensionHost.WithServiceTarget("azure.ai.agent", ...)` at
-  `cli/azd/extensions/azure.ai.agents/internal/cmd/listen.go:40-42`, but
-  every service-target today must be invoked via a user-declared
-  `services.<name>` entry. No mechanism exists to synthesize one from a
-  non-`services:` top-level section. The gRPC contract (`ServiceTargetProvider`)
-  is fine as-is; the gap is the **registration + invocation glue** in azd
-  core.
-* **Risk / alternative.** A simpler fallback is **Lifecycle A**: extension
-  does data-plane work in its existing `postprovision` hook (already wired
-  at `listen.go:46-48`). Zero core change but timing is implicit, partial
-  failure semantics are murky, and the section is invisible to azd's
-  ordering/telemetry. Recommend D for the long-term contract, A as the
-  shippable bridge if D slips.
+  The service-level `project:`/`runtime:`/`docker:`/`image:` fields are
+  rejected because they belong per-agent inside `config.agents.<>`. The
+  Foundry project itself has no source code.
+* **Current state.** `ServiceConfig.Config` is `map[string]any`
+  (`pkg/project/service_config.go:62-63`) -- the nested structure parses
+  out of the box with no Go type changes. The gap is purely the JSON
+  Schema entry.
+* **Risk / alternative.** None significant.
 
-### 3. Preserve `${{...}}` through azd's `${VAR}` expansion
+### 2. Register a new service-target kind in the extension
+
+* **Problem.** The `azure.ai.agents` extension needs to claim
+  `microsoft.foundry` as a service-target so azd dispatches to its provider
+  for Initialize / Package / Publish / Deploy / Endpoints /
+  GetTargetResource.
+* **Proposal.** Add a second `WithServiceTarget` call alongside the
+  existing one at [`listen.go:40-42`](https://github.com/Azure/azure-dev/blob/main/cli/azd/extensions/azure.ai.agents/internal/cmd/listen.go#L40):
+  ```go
+  host.
+    WithServiceTarget("azure.ai.agent",    ...).  // existing, deprecated
+    WithServiceTarget("microsoft.foundry", func() azdext.ServiceTargetProvider {
+      return project.NewFoundryProjectTargetProvider(azdClient)
+    })
+  ```
+  Plus update `extension.yaml` providers list to declare the new
+  service-target.
+* **Current state.** The provider plumbing already exists and is exercised
+  for `azure.ai.agent`. Adding a second is straight-line extension work,
+  no core change.
+* **Risk / alternative.** None.
+
+### 3. Per-agent build/publish inside one service-target
+
+* **Problem.** azd's existing service-target contract assumes one source
+  dir, one build, one publish per service. The Foundry project service has
+  N nested agents, each with its own `project:`/`runtime:`/`docker:` (for
+  the hosted, code-bearing ones). The extension has to fan out internally.
+* **Proposal.** Two viable paths:
+  * **3a (extension does it all).** The Foundry service-target's `Package`
+    iterates `config.agents`, finds the code-bearing ones, and runs builds
+    itself -- shelling out to `docker build` / zip packaging, or calling
+    azd's docker helpers via the gRPC client if exposed. `Publish` pushes
+    artifacts (ACR for container mode; Foundry blob upload for code-deploy
+    mode). `Deploy` posts the agent definition with the published
+    artifact reference. Most contained; no core change.
+  * **3b (core support for nested code-bearing units).** azd core gains a
+    notion of "sub-services" -- a service that itself contains build/deploy
+    units azd can drive. Extensions declare which keys in their `config:`
+    represent sub-services. Cleaner UX (per-agent progress, telemetry,
+    failure attribution) but a meaningful new core concept.
+* **Recommendation.** **3a for v1** to avoid blocking on core; revisit 3b
+  if per-agent observability becomes a real pain point.
+* **Current state.** Neither path is implemented. 3a is straightforward
+  extension work; 3b is a meaningful new core capability not on any current
+  roadmap.
+* **Risk.** Under 3a, errors during one agent's build surface as
+  "support-platform failed" rather than "support-agent failed." Mitigate
+  with extension-side structured error messages naming the agent.
+
+### 4. Preserve `${{...}}` through azd's `${VAR}` expansion
 
 * **Problem.** Foundry uses `${{connections.x.credentials.key}}` for
   server-side resolution. azd's existing envsubst path
@@ -125,123 +172,109 @@ proposal) works but conflates two different things.
   `github.com/drone/envsubst`) treats `$` as a sigil and may consume or
   corrupt the `${{...}}` pattern before it reaches the Foundry API.
 * **Proposal.** Either (a) pre-process `${{...}}` to a sentinel before
-  envsubst and restore after, or (b) introduce a `PreserveSyntax` option on
-  `ExpandableString.Envsubst` that skips `${{...}}`. Apply only to
-  extension-owned blobs (the `foundry:` section); existing call sites
-  unchanged. Add tests against drone/envsubst's actual behavior.
-* **Current state.** `ServiceConfig.Config` (`pkg/project/service_config.go:62-63`,
-  `map[string]any`) is **not** expanded by azd core today -- extensions
-  handle it. So this is only a concern for the `foundry:` top-level if azd
-  core touches its contents. If extensions own all expansion of the
-  `foundry:` block via the existing `drone/envsubst` package, they need to
-  apply the same preservation rule. Either way, the extension(s) need a
-  shared helper.
-* **Risk / alternative.** If we keep all `foundry:` expansion inside the
-  Foundry extension (azd core never touches the bytes), the gap collapses
-  to "extension exposes a helper or the team agrees on a pre/post-process
-  convention." Worth aligning before two extensions write divergent
-  expanders.
+  envsubst and restore after, or (b) add a `PreserveSyntax` option on
+  `ExpandableString.Envsubst` that skips `${{...}}`. Apply only where
+  Foundry data is read.
+* **Current state.** `ServiceConfig.Config` is **not** envsubst-expanded
+  by azd core today -- extensions handle it. So this is primarily an
+  extension-side concern. Either way, the team should agree on a shared
+  helper so any future extension that touches Foundry config behaves
+  identically.
+* **Risk / alternative.** If the extension owns all expansion of the
+  Foundry `config:` block, no core change needed. Worth aligning on the
+  convention before two extensions write divergent expanders.
 
-### 4. (Open) Project-scoped extension `uses:` semantics
+### 5. Deprecate `host: azure.ai.agent`
 
-* **Problem.** Today `services.<>.uses:` orders one service before another
-  and injects the dependency's outputs as env vars. The synthetic
-  `azure.ai.project` service-target needs to deploy before any
-  `azure.ai.agent` service that depends on the `foundry:` state. Two
-  approaches:
-  * **Implicit.** Any `host: azure.ai.agent` service implicitly depends on
-    the synthesized project-level target.
-  * **Explicit.** User adds `uses: [<synthetic-name>]` -- but the synthetic
-    name is not in their `azure.yaml`, so they cannot.
-* **Proposal.** Implicit. The extension knows which host kinds belong to it
-  and declares the implicit dependency at registration time. This keeps the
-  `foundry:` block invisible-but-correct.
-* **Current state.** Implicit cross-service ordering doesn't exist;
-  `uses:` is the only mechanism. Need a hook for extensions to inject
-  ordering edges programmatically during project load.
-* **Risk / alternative.** Punt and require the user to write `uses:
-  [project]` against a reserved name. Less clean but works without core
-  change.
+* **Problem.** The old per-agent host kind no longer fits -- agents are
+  not top-level services in this model.
+* **Proposal.** Keep parsing `host: azure.ai.agent` during the deprecation
+  window. When detected, emit a structured deprecation warning that points
+  at the migration guide. Remove after one window (informed by telemetry).
+* **Current state.** Today's service-target at
+  `cli/azd/extensions/azure.ai.agents/internal/project/service_target_agent.go`
+  handles `host: azure.ai.agent`. Keep it running; mark deprecated.
+* **Risk.** Coordinating the cutover with the Foundry Toolkit for VS Code,
+  which currently reads `agent.yaml` directly and will need to learn the
+  new shape.
 
 ## Required extension changes (`azure.ai.agents`)
 
-### 1. Publish `foundry.json` schema
+### 1. Publish `microsoft.foundry.json` schema
 
-Owns: `deployments`, `connections`, `toolboxes`, `skills`, `routines`,
-`agents`. Lives at
-`cli/azd/extensions/azure.ai.agents/schemas/foundry.json`.
-`additionalProperties: true` at the top level so new Foundry data-plane
-resources (eval datasets, vector indexes, knowledge sources) can be added
-without azd-side schema breaks. Referenced by `azure.yaml.json` from the
-core repo.
+Owns the entire `config:` block for `host: microsoft.foundry`:
 
-### 2. Slim `azure.ai.agent.json` schema
-
-Today's [`cli/azd/extensions/azure.ai.agents/schemas/azure.ai.agent.json`](https://github.com/Azure/azure-dev/blob/main/cli/azd/extensions/azure.ai.agents/schemas/azure.ai.agent.json)
-carries `deployments`, `resources`, `toolConnections`, `toolboxes`,
-`connections`. **All move to `foundry.json`.** What stays on the per-agent
-service `config:` block:
-
-* `agent: <name>` -- new L2 link field
-* `container.resources` -- runtime container cpu/memory
-* `startupCommand` -- (existing)
-* `env` -- (existing, runtime container env)
-
-Removed from `config:` (move to `foundry.agents.<name>`): `kind`, `protocols`,
-`metadata`, `description`, `env` (the *agent-level* env -- container-level
-env stays on `config:`), `toolboxes` (now references by name to
-`foundry.toolboxes`).
-
-### 3. Implement the project-level service-target
-
-Wire a second `WithServiceTarget` in
-[`listen.go:40-42`](https://github.com/Azure/azure-dev/blob/main/cli/azd/extensions/azure.ai.agents/internal/cmd/listen.go#L40)
-(or whichever mechanism the new capability uses):
-
-```go
-host.
-  WithServiceTarget("azure.ai.agent", ...).            // existing
-  WithProjectServiceTarget("azure.ai.project", ...)    // new
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "deployments": { ... },
+    "connections": { ... },
+    "toolboxes":   { ... },
+    "skills":      { ... },
+    "routines":    { ... },
+    "agents":      { ... }
+  },
+  "additionalProperties": true
+}
 ```
 
-`Deploy` reconciles `foundry:` state via Foundry APIs:
+Lives at `cli/azd/extensions/azure.ai.agents/schemas/microsoft.foundry.json`.
+`additionalProperties: true` at the top level so new Foundry data-plane
+resources (eval datasets, vector indexes, memories) can be added without
+azd-side schema breaks.
 
-* Model deployments (currently env-var-serialized to Bicep)
-* Connections (currently `preprovision`/`postprovision` hook handlers)
-* Toolboxes (currently `provisionToolboxes()` in `postprovision`)
-* Skills (new -- depends on schema; see open question)
-* Routines (new -- depends on schema)
-* Prompt agents (new -- no existing path)
+Per-agent sub-schema accepts both Foundry definition fields and the azd
+build primitives:
 
-Logic for the first three lifts out of the existing hook handlers
-(`postprovisionHandler` and friends in `listen.go:46-57`) into the new
-service-target. `Initialize` validates the schema. `Package`/`Publish` are
-no-ops.
+* Foundry fields: `kind`, `description`, `protocols`, `env`, `container`,
+  `toolboxes`, `skill`, `instructions`, `image`
+* Build fields: `project`, `runtime`, `docker`, `startupCommand`
+* `runtime:` and `docker:` are mutually exclusive (validation rule). Both
+  required for `kind: hosted` unless `image:` (pre-built) is set.
 
-### 4. Update per-agent service-target to use the L2 link
+### 2. Slim or remove the old `azure.ai.agent.json` schema
 
-`project.NewAgentServiceTargetProvider` (`cli/azd/extensions/azure.ai.agents/internal/project/service_target_agent.go`)
-currently reads its definition from `ServiceConfig.Config`. After the
-change it reads `config.agent: <name>` and looks up the definition from
-the parsed `foundry.agents.<name>` entry on `ProjectConfig.AdditionalProperties`.
+Today's [`cli/azd/extensions/azure.ai.agents/schemas/azure.ai.agent.json`](https://github.com/Azure/azure-dev/blob/main/cli/azd/extensions/azure.ai.agents/schemas/azure.ai.agent.json)
+loses everything except whatever fields are still meaningful for the
+deprecated `host: azure.ai.agent` shape during the migration window.
+Eventually it goes away with the host kind.
 
-### 5. Update `azd ai agent init`
+### 3. Implement the `microsoft.foundry` service-target
 
-Generate the consolidated `azure.yaml` with `foundry:` + per-agent services
-entries. Stop emitting `agent.yaml` and `agent.manifest.yaml`. The ~200
-lines in `internal/cmd/init.go` (`extractToolboxAndConnectionConfigs` line
-3329, `extractConnectionConfigs` line 3531) collapse into "write directly
-to the `foundry:` block."
+New file: `cli/azd/extensions/azure.ai.agents/internal/project/service_target_foundry.go`.
 
-### 6. Deprecation fallback for old files
+| Method | Behavior |
+|---|---|
+| `Initialize` | Validate the full `config:` block; ensure agent kinds, deploy-mode mutual exclusion, named toolbox/skill/connection references resolve. |
+| `Package` | For each `config.agents.<>` with code (has `project:`), build per its `runtime:` (zip) or `docker:` (image). Internal fan-out across agents. |
+| `Publish` | Push each agent's artifact (Foundry blob upload for zip; ACR push for image). |
+| `Deploy` | (a) Reconcile project-level state -- deployments, connections, toolboxes, skills, routines, prompt agents -- via Foundry APIs. (b) For each agent (hosted or prompt), post `createAgentVersion` with the published artifact reference (where applicable). |
+| `Endpoints` | Return the Foundry project endpoint URL plus the per-agent endpoints if discoverable. |
+| `GetTargetResource` | Resolve the Foundry project's ARM resource. |
+
+Logic for project-state reconciliation lifts out of the existing hook
+handlers (`postprovisionHandler` and friends in
+[`listen.go:46-57`](https://github.com/Azure/azure-dev/blob/main/cli/azd/extensions/azure.ai.agents/internal/cmd/listen.go#L46)).
+
+### 4. Update `azd ai agent init`
+
+Generate the consolidated `azure.yaml` with one `host: microsoft.foundry`
+service entry. Stop emitting `agent.yaml` / `agent.manifest.yaml`. The
+~200 lines in `internal/cmd/init.go` (`extractToolboxAndConnectionConfigs`
+line 3329, `extractConnectionConfigs` line 3531) collapse into "write
+directly to the Foundry service's `config:` block."
+
+### 5. Deprecation fallback
 
 One deprecation window: detect `agent.yaml` / `agent.manifest.yaml` next
 to `azure.yaml`, print a warning via `output.WithWarningFormat`, continue
-to read them, emit telemetry to track migration decay. After the window,
+to read them and produce the equivalent in-memory `microsoft.foundry`
+service-target, emit telemetry to track migration decay. After the window,
 remove. Rename or repurpose `exterrors.CodeInvalidAgentManifest` if it
 becomes meaningless.
 
-### 7. Built-in Bicep for Foundry project provisioning
+### 6. Built-in Bicep for Foundry project provisioning
 
 `azd provision` should not require an `infra/` directory or Bicep on disk
 for a Foundry-only project. Carry templates inside the extension binary,
@@ -254,97 +287,86 @@ equivalent) -- separate RFC for the generation mechanism.
 The existing per-resource extensions
 (`azure.ai.toolboxes`, `azure.ai.connections`, `azure.ai.projects`,
 `azure.ai.skills`, `azure.ai.routines`, bundled by `microsoft.foundry`)
-own data-plane CLIs (`azd ai toolbox`, `azd ai connection`, ...). Today
-none of them participate in `azure.yaml`.
+own data-plane CLIs (`azd ai toolbox`, `azd ai connection`, ...) that act
+on a live Foundry project. None of them participate in `azure.yaml` today
+and that does not have to change.
 
-In the proposed model, the `foundry:` section spans concepts each of those
-extensions arguably owns. Three options for schema/reconciliation ownership:
+Two options for schema/reconciliation ownership of the new
+`microsoft.foundry.json` slices:
 
 | Option | Description | Trade-off |
 |---|---|---|
-| **A** | `azure.ai.agents` owns the full `foundry.json` schema in v1; siblings keep their data-plane CLIs only | Simplest, fastest to ship. One extension reconciles everything. Tight coupling between agents and project-scoped concerns. |
-| **B** | `azure.ai.projects` (thematic home for project-scoped state) takes ownership; logic moves out of `azure.ai.agents` | Cleaner alignment with extension names. More cross-extension migration. `azure.ai.projects` is currently endpoint-context-only -- needs more capability. |
-| **C** | Each sibling contributes its slice (`azure.ai.toolboxes` owns `foundry.toolboxes`, etc.); a new aggregator extension or core mechanism composes them | Most modular, most coordination. Composition mechanism for a single top-level section across many extensions is itself a new core feature. |
+| **A** | `azure.ai.agents` owns the full schema in v1; siblings keep their data-plane CLIs only | Simplest, fastest to ship. One extension reconciles everything. |
+| **B** | Schema is owned by the `microsoft.foundry` meta-extension; per-resource extensions register slice contributions | Cleaner thematic alignment but a new "extension contributes a slice of another extension's schema" composition mechanism is itself new core work. |
 
-**Recommendation: A for v1**, then re-evaluate B/C after the new shape is
-in users' hands and we see how often the seams matter.
+**Recommendation: A for v1**, then re-evaluate B after the new shape is in
+users' hands.
 
 ## Missing functionality (concrete gaps to build)
 
 | Area | What is missing | Where |
 |---|---|---|
-| azd core | JSON Schema entry for top-level `foundry:` block | `schemas/v1.0/azure.yaml.json` |
-| azd core | `project-service-target` registration mechanism for synthesizing services from top-level sections | `pkg/project/*`, `cli/azd/pkg/azdext/*` (gRPC contract addition) |
-| azd core | Implicit ordering: extension-declared dependency from its service-targets to its project-service-target | service ordering / DAG construction |
+| azd core | JSON Schema conditional for `host: microsoft.foundry` `config:` block (with project/runtime/docker/image disabled at service level) | `schemas/v1.0/azure.yaml.json` |
+| azd core | (Optional, 3b only) Sub-service concept for nested code-bearing units inside a service-target | `pkg/project/*` |
 | azd core | `${{...}}` preservation in `ExpandableString.Envsubst` (or convention if extension owns expansion) | `pkg/osutil/expandable_string.go:29-30` |
-| `azure.ai.agents` | `foundry.json` schema (new) | `cli/azd/extensions/azure.ai.agents/schemas/foundry.json` |
-| `azure.ai.agents` | Slimmed `azure.ai.agent.json` schema | existing file |
-| `azure.ai.agents` | Project-level service-target implementation | `internal/project/*` |
-| `azure.ai.agents` | Per-agent service-target reads `config.agent:` link from `foundry.agents` | `internal/project/service_target_agent.go` |
+| `azure.ai.agents` | `microsoft.foundry.json` schema (new) | `cli/azd/extensions/azure.ai.agents/schemas/microsoft.foundry.json` |
+| `azure.ai.agents` | `microsoft.foundry` service-target with internal per-agent fan-out for Package/Publish/Deploy | `internal/project/service_target_foundry.go` (new) |
 | `azure.ai.agents` | Consolidated `init` flow; remove `agent.yaml` / `agent.manifest.yaml` emission | `internal/cmd/init.go` (especially lines 3329, 3531) |
 | `azure.ai.agents` | Built-in Bicep for Foundry project (azd compose pattern) | new |
-| `azure.ai.agents` | Skills schema + reconciliation | new (depends on skills schema decision below) |
-| `azure.ai.agents` (or sibling) | Routines schema + reconciliation | new |
-| `azure.ai.agents` | Deprecation fallback path for old files + telemetry | `internal/cmd/init.go`, telemetry call sites |
+| `azure.ai.agents` | Skills schema + reconciliation | new (depends on skills schema decision) |
+| `azure.ai.agents` | Routines schema + reconciliation | new (depends on routines schema decision) |
+| `azure.ai.agents` | Deprecation fallback path + telemetry for `host: azure.ai.agent` and old files | `internal/cmd/init.go`, `internal/project/service_target_agent.go`, telemetry call sites |
 | Tooling | Foundry Toolkit for VS Code parser switch from `agent.yaml` to `azure.yaml` | Toolkit team, not in this repo |
-| Composition (#8049) | `azd ai project add connection|model|toolbox|skill|agent` command family | new commands, shared YAML-edit engine |
+| Composition (#8049) | `azd ai project add connection\|model\|toolbox\|skill\|agent` command family writing into the Foundry service's `config:` block | new commands, shared YAML-edit engine |
 
 ## Open questions (decisions the team needs to make)
 
-1. **Top-level section name.** `foundry:` (used here, shortest, matches how
-   the team talks about it) vs `foundryProject:` vs `aiFoundry:` vs
-   `ai.foundry:` (closer to how other host kinds are namespaced). Locks in
-   muscle memory once shipped.
-2. **Schema ownership (Options A/B/C above).** Recommend A for v1.
-3. **Skill `instructions:` format.** Inline string only, file path only, or
-   both? File paths are git-diff friendly; inline strings are simpler for
-   single-prompt skills. The complex branch uses both forms to illustrate.
-4. **Routines.** Does the new schema live in `azure.ai.routines` or
-   `azure.ai.agents`? What does the trigger schema look like beyond
-   `type: schedule, cron: ...`? Event triggers? Webhook triggers?
-   This sample uses a minimal cron-only shape -- needs validation against
-   the existing `azure.ai.routines` extension's model and the Foundry
-   product spec.
-5. **L2 link discoverability.** Should `config.agent:` be promoted to a
-   top-level `ServiceConfig` field (`services.<>.agent: <name>`) for
-   discoverability and editor support, even though it costs a core schema
-   change? Current proposal keeps it inside `config:` to minimize core
-   delta. Probably worth promoting if other extensions ever need a similar
-   "link to project-scoped declaration" pattern.
-6. **"Mix of code" semantics.** Concretely: multiple services backing one
-   agent? Code + prompts hybrid? A future kind we don't have a name for?
-   The architecture allows multiple services to set `config.agent: <same-name>`
-   today, but we have not specified what that *means* at deploy time.
-   Surface a concrete use case before adding validation rules.
+1. **Host kind name.** `microsoft.foundry` (used here, matches the existing
+   meta-extension name) vs `azure.ai.foundry` vs `azure.ai.project` (closer
+   to the Foundry product name). Locks in once shipped.
+2. **Schema ownership (Options A/B above).** Recommend A for v1.
+3. **Per-agent build orchestration (3a vs 3b above).** Recommend 3a for
+   v1; revisit 3b if per-agent observability becomes a pain point.
+4. **Per-agent CLI addressability.** Standard `azd deploy <name>`
+   addresses the whole Foundry project, not individual agents. Is that OK
+   as the long-term model with the extension CLI filling the per-agent
+   gap (`azd ai agent deploy <name>`), or do we need core to expose
+   sub-service deploy targets? Tied to question 3.
+5. **Skill `instructions:` format.** Inline string only, file path only,
+   or both? File paths are git-diff friendly; inline strings are simpler
+   for single-prompt skills. The complex branch uses both forms.
+6. **Routines schema.** Does it live in `azure.ai.routines` or
+   `azure.ai.agents`? Trigger schema beyond `type: schedule, cron: ...`?
+   Event triggers? Webhook triggers? The sample uses a minimal cron-only
+   shape -- needs validation against the existing `azure.ai.routines`
+   extension and the Foundry product spec.
 7. **Idempotency / state management.** When `azd deploy` runs repeatedly,
-   does the project-level target diff `foundry:` against live Foundry state
-   and apply incremental changes, or recreate? When a user removes an entry
-   from `foundry:`, does the next deploy delete it from Foundry? **Plan
-   recommends Bicep-like semantics: "drop from config = stop using, not
-   destroy"** (consistent with #8049). Destructive operations route through
-   `azd down` or per-resource `az` CLI commands. Needs explicit doc and
-   tests.
-8. **Partial-failure recovery.** Project-level deploy creates 4 toolboxes,
-   then a connection fails. Per-agent deploys are blocked downstream. What
-   does re-running `azd deploy` do? Plan recommends idempotent upsert -- but
-   confirm with the Foundry API surface (some create calls may not be
-   idempotent).
+   does the Foundry service-target diff `config:` against live Foundry
+   state and apply incremental changes, or recreate? When a user removes
+   an entry from `config:`, does the next deploy delete it from Foundry?
+   **Recommendation: Bicep-like semantics: "drop from config = stop using,
+   not destroy"** (consistent with #8049). Destructive operations route
+   through `azd down` or per-resource `az` CLI commands. Needs explicit
+   doc and tests.
+8. **Partial-failure recovery.** The Foundry service-target creates 4
+   toolboxes, then a connection fails, then one agent's container build
+   fails. Per-agent fan-out means partial state. What does re-running
+   `azd deploy` do? Idempotent upsert -- confirm with Foundry API
+   contracts (some create calls may not be idempotent).
 9. **Foundry Toolkit cutover timing.** Toolkit currently reads
    `agent.yaml`. When does it switch to `azure.yaml`? Affects deprecation
-   window length and whether v1 must ship with a working fallback.
-10. **`azd up` ordering with mixed services.** Synthesized project-level
-    target deploys first (no source). Per-agent services after, in `uses:`
-    order. Non-Foundry services keep their existing slot. Confirm this is
-    what we want -- a Container Apps frontend that `uses:` the agents will
-    correctly deploy last. The complex branch's `webapp` exercises this.
+   window length and whether v1 must ship a working fallback.
+10. **`azd up` ordering with non-Foundry services.** The Foundry service
+    deploys before any service that `uses:` it (standard azd ordering --
+    no new logic). The complex branch's `webapp` exercises this.
 
 ## Phasing
 
 | Phase | Scope | Blockers |
 |---|---|---|
-| 1 -- Consolidation | New `foundry:` section, slim `azure.ai.agent.json`, project-level service-target, consolidated init, deprecation fallback, built-in Bicep | none -- can start once core change 1+2 is agreed |
-| 2 -- Composition (#8049) | `azd ai project add` command family with shared YAML-edit engine | Phase 1 lands |
-| 3 -- Cleanup | Remove `agent.yaml` / `agent.manifest.yaml` parser support; Toolkit cutover; rename `CodeInvalidAgentManifest` | Phase 1+2 live in users' hands; telemetry shows decay; Toolkit ships its parser switch |
+| 1 -- Unification | New `host: microsoft.foundry`; `microsoft.foundry.json` schema; new service-target with internal fan-out; consolidated init; deprecation fallback for old `agent.yaml` / `agent.manifest.yaml` AND old `host: azure.ai.agent`; built-in Bicep | none -- can start once core change 1 lands |
+| 2 -- Composition (#8049) | `azd ai project add` command family with shared YAML-edit engine | Phase 1 |
+| 3 -- Cleanup | Remove `agent.yaml` / `agent.manifest.yaml` parser support; remove `host: azure.ai.agent`; Toolkit cutover; rename `CodeInvalidAgentManifest` | Phase 1+2 live; telemetry shows decay; Toolkit ships parser switch |
 
 ## Related links
 
