@@ -23,6 +23,7 @@ Replace `my-project` with whatever name fits your project.
 
 ## Contents
 
+* [Complete example: single agent, all new resources](#complete-example-single-agent-all-new-resources)
 * [Project basics](#project-basics)
   * [Single hosted agent (minimum viable)](#single-hosted-agent-minimum-viable)
   * [Multiple agents](#multiple-agents)
@@ -71,6 +72,110 @@ Replace `my-project` with whatever name fits your project.
   * [Foundry server-side resolution (`${{...}}`)](#foundry-server-side-resolution-)
   * [Foundry-managed secrets (no on-disk secret)](#foundry-managed-secrets-no-on-disk-secret)
 * [Coexistence with non-Foundry services](#coexistence-with-non-foundry-services)
+
+---
+
+## Complete example: single agent, all new resources
+
+A full `azure.yaml` for a one-agent project where azd manages everything --
+new Foundry project (no `endpoint:`), new model deployment, new project
+connection, new toolbox, new skill, one hosted agent. Drop it into a repo
+as a starting point; trim any section you don't need.
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/schemas/v1.0/azure.yaml.json
+
+name: my-foundry-agent
+metadata:
+  template: azd-init@1.21.0
+
+services:
+  my-project:
+    host: microsoft.foundry
+    # No `endpoint:` -- azd provisions a new Foundry project.
+
+    # ---- Model deployments ----
+    deployments:
+      - name: gpt-4.1-mini
+        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
+        sku:   { name: GlobalStandard, capacity: 10 }
+
+    # ---- Project connections ----
+    connections:
+      - name: github-mcp-conn
+        category: CustomKeys
+        target: https://api.githubcopilot.com/mcp
+        authType: CustomKeys
+        credentials:
+          x-api-key: ${GITHUB_MCP_TOKEN}     # azd resolves from .azure/<env>/.env
+        metadata:
+          type: custom_MCP
+
+    # ---- Toolboxes ----
+    toolboxes:
+      my-toolbox:
+        tools:
+          - { type: web_search }
+          - { type: code_interpreter }
+          - { type: mcp, connection: github-mcp-conn }
+
+    # ---- Skills ----
+    skills:
+      code-review:
+        description: Reviews code for bugs and style issues
+        instructions: ./prompts/code-review.md
+        tools: [file_search, code_interpreter]
+
+    # ---- Agents ----
+    agents:
+      my-agent:
+        kind: hosted
+        description: General-purpose assistant with web, code, and GitHub MCP tools.
+        project: src/my-agent
+        docker:
+          path: Dockerfile
+          remoteBuild: true
+        protocols:
+          - { protocol: responses, version: "1.0.0" }
+        startupCommand: python main.py
+        toolboxes: [my-toolbox]
+        skill: code-review
+        env:
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+        container:
+          resources: { cpu: "0.5", memory: "1Gi" }
+```
+
+The accompanying file layout `azd ai agent init` would produce:
+
+```
+.
+├── azure.yaml
+├── .env.example                # placeholders for GITHUB_MCP_TOKEN, FOUNDRY_PROJECT_ENDPOINT, etc.
+├── .gitignore
+├── prompts/
+│   └── code-review.md          # backs the code-review skill
+└── src/
+    └── my-agent/
+        ├── main.py
+        ├── requirements.txt
+        ├── Dockerfile
+        ├── .azdignore
+        └── .dockerignore
+```
+
+End-to-end lifecycle:
+
+| Command | Effect |
+|---|---|
+| `azd provision` | Creates the Foundry project (ARM via in-memory Bicep) and the `gpt-4.1-mini` model deployment. |
+| `azd deploy`    | Reconciles `github-mcp-conn`, `my-toolbox`, and the `code-review` skill via Foundry APIs; builds + pushes the `my-agent` container via ACR; posts `createAgentVersion` for `my-agent`. |
+| `azd up`        | Both, in order. |
+| `azd down`      | Destroys the Foundry project (takes the deployment, connection, toolbox, skill, and agent definition with it). |
+
+The rest of this document covers the same primitives in isolation, plus
+variations (multiple agents, prompt-only agents, reference-existing
+patterns, other deploy modes, language stacks, etc.).
 
 ---
 
