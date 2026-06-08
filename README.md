@@ -1,30 +1,31 @@
 # Complex Foundry Project (Unified `azure.yaml`)
 
-A realistic multi-agent platform that exercises every section of the new
-unified `azure.yaml` shape.
+A realistic multi-agent platform under the **collapsed shape**: one
+`host: microsoft.foundry` service entry holds the entire Foundry project,
+agents nested in `config:`. Plus a separate non-Foundry Container Apps
+frontend.
 
 ## What this sample demonstrates
 
-* **Two hosted agents in different deploy modes**
-  * `support-agent` -- code-deploy via `runtime:` (zip upload, no Dockerfile)
+* **One service entry per Foundry project.** All Foundry-scoped state --
+  deployments, connections, toolboxes, skills, routines, agents -- nests
+  under `services.support-platform.config:`. The service IS the Foundry
+  project.
+* **Two hosted agents in different deploy modes**, nested with their code:
+  * `support-agent` -- code-deploy via `runtime:` (zip upload)
   * `research-agent` -- container mode via `docker:` (Dockerfile in repo)
-* **Two prompt-only agents** with no `services:` entry
+* **Two prompt agents** -- pure config, no source dir, no docker/runtime:
   * `triage-agent` -- inline `instructions:` string
-  * `summarizer-agent` -- references a `foundry.skills` entry
-* **Two named toolboxes** sharing tools across agents (the thing the old
-  per-agent `agent.manifest.yaml` could not do cleanly)
-* **Three connection types**
-  * `github-mcp-conn` -- `CustomKeys` auth, secret via `${ENV_VAR}` from
-    azd environment
-  * `tavily-mcp-conn` -- `ApiKey` auth, also `${ENV_VAR}`
-  * `azure-search-conn` -- `ProjectManagedIdentity`, no secret on disk
+  * `summarizer-agent` -- references `config.skills.triage`
+* **Two named toolboxes** shared across agents
+* **Three connection types** (CustomKeys + ApiKey + ProjectManagedIdentity)
 * **Three model deployments** (chat large, chat mini, embeddings)
 * **Two skills** with file-backed prompt instructions in `prompts/`
 * **One routine** (`nightly-ticket-summary`) -- scheduled agent invocation
-* **A non-Foundry Container Apps frontend** (`webapp`) that calls the agents
-  -- shows Foundry resources coexisting with the rest of azd's ecosystem
+* **A non-Foundry Container Apps frontend** (`webapp`) consuming the agents
+  -- demonstrates Foundry + non-Foundry services coexisting via `uses:`
 * **Both templating syntaxes** in one file:
-  * `${VAR}` -- azd env expansion, resolved at deploy time on the client
+  * `${VAR}` -- azd env expansion, resolved client-side at deploy
   * `${{...}}` -- Foundry server-side resolution, passed through untouched
 
 ## File layout
@@ -35,10 +36,10 @@ unified `azure.yaml` shape.
 ├── .env.example
 ├── .gitignore
 ├── prompts/
-│   ├── code-review.md        <- skill instructions (code-review skill)
-│   └── triage.md             <- skill instructions (triage skill, used by summarizer-agent)
+│   ├── code-review.md        <- code-review skill instructions
+│   └── triage.md             <- triage skill instructions
 └── src/
-    ├── support-agent/        <- code-deploy mode; no Dockerfile needed
+    ├── support-agent/        <- code-deploy mode; no Dockerfile
     │   ├── main.py
     │   ├── requirements.txt
     │   └── .azdignore
@@ -57,202 +58,188 @@ unified `azure.yaml` shape.
         └── .dockerignore
 ```
 
-## The shape of `azure.yaml` -- by section
+## The `azure.yaml` -- by section
 
-### `foundry.deployments`
-
-```yaml
-foundry:
-  deployments:
-    - name: gpt-4.1
-      model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
-      sku:   { name: GlobalStandard, capacity: 50 }
-```
-
-Model deployments on the Foundry project. Created via Foundry APIs during
-data-plane apply. Removing here is **not** destructive on the next deploy
-(matches Bicep semantics) -- use `azd down` or `az` CLI to destroy.
-
-### `foundry.connections`
-
-```yaml
-foundry:
-  connections:
-    - name: github-mcp-conn
-      category: CustomKeys
-      target: https://api.githubcopilot.com/mcp
-      authType: CustomKeys
-      credentials:
-        x-api-key: ${GITHUB_MCP_TOKEN}    # azd env expansion (${VAR})
-```
-
-Two secret-management modes are shown:
-
-1. **azd-environment-managed** -- `${ENV_VAR}` references. azd reads the
-   value from `.azure/<env>/.env` at deploy time and posts it to Foundry.
-2. **Foundry-managed identity** -- no secret on disk. The Foundry project's
-   managed identity authenticates to the target.
-
-### `foundry.toolboxes`
-
-```yaml
-foundry:
-  toolboxes:
-    research-toolbox:
-      tools:
-        - { type: web_search }
-        - { type: mcp,             connection: github-mcp-conn }
-        - { type: mcp,             connection: tavily-mcp-conn }
-        - { type: azure_ai_search, connection: azure-search-conn }
-```
-
-Named toolboxes. Multiple agents reference the same toolbox by name (see
-`support-toolbox` shared by `support-agent`; `research-toolbox` shared by
-`research-agent`). Tools that need a connection reference it by name --
-Foundry resolves connection IDs at deploy time.
-
-### `foundry.skills`
-
-```yaml
-foundry:
-  skills:
-    code-review:
-      description: Reviews code for bugs and style issues
-      instructions: ./prompts/code-review.md
-      tools: [file_search, code_interpreter]
-```
-
-Reusable capability bundles. `instructions:` accepts a string (inline) or a
-file path (markdown). File-backed instructions are friendlier to git diffs
-and to non-developer prompt authors.
-
-### `foundry.routines`
-
-```yaml
-foundry:
-  routines:
-    nightly-ticket-summary:
-      trigger: { type: schedule, cron: "0 8 * * *" }
-      agent: summarizer-agent
-      input:
-        ticket_source: ${TICKET_SOURCE_URL}
-```
-
-Scheduled or event-driven agent invocations. Reconciled by the
-`azure.ai.routines` extension during data-plane apply.
-
-### `foundry.agents`
-
-All agent definitions live here. Hosted and prompt agents share the same
-section so the mental model stays uniform: "Foundry agents are defined in
-`foundry.agents`. Some of them happen to have code."
-
-Prompt agent (no services entry):
-
-```yaml
-foundry:
-  agents:
-    triage-agent:
-      kind: prompt
-      description: Routes customer questions to the right specialist agent
-      instructions: |
-        You are a triage agent...
-      env:
-        AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
-```
-
-Hosted agent (links to a services entry):
-
-```yaml
-foundry:
-  agents:
-    research-agent:
-      kind: hosted
-      description: Deep research agent using web search, MCP, and Azure AI Search
-      protocols:
-        - { protocol: responses, version: "1.0.0" }
-      toolboxes: [research-toolbox]
-      env:
-        AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1
-        # ${{...}} is Foundry server-side resolution. azd does NOT expand it.
-        # Foundry reads the live credential from the named project connection
-        # and injects it into the agent process at runtime.
-        GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
-        TAVILY_API_KEY:   ${{connections.tavily-mcp-conn.credentials.key}}
-```
-
-### `services` (only for code-bearing agents)
-
-Two hosted agents demonstrate both deploy modes:
+### Top-level: two service entries
 
 ```yaml
 services:
-  # Code-deploy mode (runtime: present, no Dockerfile)
-  support-agent-code:
+  support-platform:           # Foundry project
+    host: microsoft.foundry
+    config: { ... }           # everything Foundry-scoped here
+  webapp:                     # non-Foundry frontend
+    host: containerapp
+    uses: [support-platform]  # deploy after the Foundry project
+```
+
+### Inside `config.deployments`
+
+```yaml
+deployments:
+  - name: gpt-4.1
+    model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
+    sku:   { name: GlobalStandard, capacity: 50 }
+```
+
+Project-scoped model deployments. Reconciled via Foundry APIs.
+Drop-from-config is non-destructive.
+
+### Inside `config.connections`
+
+```yaml
+connections:
+  - name: github-mcp-conn
+    category: CustomKeys
+    target: https://api.githubcopilot.com/mcp
+    authType: CustomKeys
+    credentials:
+      x-api-key: ${GITHUB_MCP_TOKEN}        # ${VAR} = azd env expansion
+```
+
+Two secret modes shown:
+
+1. **azd-environment-managed** -- `${ENV_VAR}` resolved client-side
+2. **Foundry-managed identity** -- `authType: ProjectManagedIdentity`, no secret on disk
+
+### Inside `config.toolboxes`
+
+```yaml
+toolboxes:
+  research-toolbox:
+    tools:
+      - { type: web_search }
+      - { type: mcp,             connection: github-mcp-conn }
+      - { type: mcp,             connection: tavily-mcp-conn }
+      - { type: azure_ai_search, connection: azure-search-conn }
+```
+
+Named toolboxes; agents reference by name in `config.agents.<>.toolboxes`.
+
+### Inside `config.skills`
+
+```yaml
+skills:
+  code-review:
+    description: Reviews code for bugs and style issues
+    instructions: ./prompts/code-review.md
+    tools: [file_search, code_interpreter]
+```
+
+`instructions:` accepts a string (inline) or a file path. File-backed is
+git-diff friendly.
+
+### Inside `config.routines`
+
+```yaml
+routines:
+  nightly-ticket-summary:
+    trigger: { type: schedule, cron: "0 8 * * *" }
+    agent: summarizer-agent
+    input:
+      ticket_source: ${TICKET_SOURCE_URL}
+```
+
+Scheduled or event-driven agent invocations.
+
+### Inside `config.agents`
+
+Each agent carries both its Foundry definition and (for hosted agents) its
+code/build settings in **one entry**. No separate services: per-agent, no
+link field.
+
+Prompt agent:
+
+```yaml
+agents:
+  triage-agent:
+    kind: prompt
+    description: Routes customer questions to the right specialist agent
+    instructions: |
+      You are a triage agent...
+    env:
+      AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+```
+
+Hosted agent (code-deploy mode):
+
+```yaml
+agents:
+  support-agent:
+    kind: hosted
+    description: Handles general customer support questions
     project: src/support-agent
-    host: azure.ai.agent
     runtime: { stack: python, version: "3.12" }
     startupCommand: python main.py
-    config:
-      agent: support-agent              # L2 link
-      container:
-        resources: { cpu: "0.5", memory: "1Gi" }
-
-  # Container mode (docker: present, Dockerfile in repo)
-  research-agent-code:
-    project: src/research-agent
-    host: azure.ai.agent
-    docker: { path: Dockerfile, remoteBuild: true }
-    config:
-      agent: research-agent             # L2 link
-      container:
-        resources: { cpu: "1", memory: "2Gi" }
+    protocols: [{ protocol: responses, version: "1.0.0" }]
+    toolboxes: [support-toolbox]
+    env: { AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1 }
+    container: { resources: { cpu: "0.5", memory: "1Gi" } }
 ```
 
-Validation rule (from [#7962](https://github.com/Azure/azure-dev/issues/7962)):
-`docker:` and `runtime:` are mutually exclusive. Both present, or neither
-present, is a validation error.
-
-### A non-Foundry service alongside
+Hosted agent (container mode):
 
 ```yaml
-services:
-  webapp:
-    host: containerapp
-    language: js
+agents:
+  research-agent:
+    kind: hosted
+    project: src/research-agent
     docker: { path: Dockerfile, remoteBuild: true }
-    uses: [support-agent-code, research-agent-code]
+    protocols: [{ protocol: responses, version: "1.0.0" }]
+    toolboxes: [research-toolbox]
     env:
-      AZURE_AI_PROJECT_ENDPOINT: ${AZURE_AI_PROJECT_ENDPOINT}
-      SUPPORT_AGENT_NAME: support-agent
-      RESEARCH_AGENT_NAME: research-agent
+      AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-4.1
+      # ${{...}} is Foundry server-side resolution. azd does NOT expand it.
+      GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
+      TAVILY_API_KEY:   ${{connections.tavily-mcp-conn.credentials.key}}
+    container: { resources: { cpu: "1", memory: "2Gi" } }
 ```
 
-Container Apps frontend, standard azd. `uses:` orders it after the agents so
-its env points at real endpoints.
+Per-agent fields:
 
-## Lifecycle for this project
+| Field | Belongs to |
+|---|---|
+| `kind`, `description`, `protocols`, `env`, `container`, `toolboxes`, `skill` | Foundry agent definition (sent to `createAgentVersion`) |
+| `project`, `runtime` OR `docker`, `startupCommand`, `image` | Code/build (standard azd primitives, scoped per-agent) |
+| `instructions` (prompt agents) | Inline prompt OR `./path.md` file ref |
 
-1. `azd provision` -- creates the Foundry project (ARM, in-memory Bicep),
-   the model deployments, the Container Apps environment, and an Azure
-   Container Registry.
-2. `azd deploy` --
-   * synthesized project-level service-target reconciles `foundry:` state:
-     deployments, connections, toolboxes, skills, routines, prompt agents
-   * `support-agent-code` builds (zip upload) + extension pushes the agent
-     definition for `support-agent`
-   * `research-agent-code` builds container (remote build) + extension
-     pushes the agent definition for `research-agent`
-   * `webapp` builds container + deploys to Container Apps
-3. `azd up` -- both, in order, with `uses:` driving service ordering.
-4. `azd down` -- destroys the Foundry project and the resource group.
+`docker:` and `runtime:` are mutually exclusive per agent. Both / neither
+is a validation error.
+
+## Lifecycle
+
+The `microsoft.foundry` service-target fans out internally across nested
+agents:
+
+1. `azd provision`
+   * Creates the Foundry project (ARM, in-memory Bicep) and Container Apps
+     environment + ACR for the webapp.
+2. `azd deploy`
+   * **support-platform** (Foundry project service):
+     * reconciles `config.deployments`, `config.connections`,
+       `config.toolboxes`, `config.skills`, `config.routines` via Foundry APIs
+     * builds + uploads zip for `support-agent` (runtime: mode)
+     * builds + pushes container for `research-agent` (docker: mode)
+     * posts `createAgentVersion` for every agent (4 total: 2 prompt + 2 hosted)
+   * **webapp**: builds container + deploys to Container Apps
+3. `azd up` -- both, in `uses:` order
+4. `azd down` -- destroys the Foundry project and the resource group
+
+Per-agent ops route through the extension CLI:
+
+```bash
+azd ai agent deploy support-agent       # update just one agent
+azd ai agent run research-agent         # local dev for one agent
+azd ai agent invoke support-agent "Hi"  # invoke a deployed agent
+```
+
+The standard `azd deploy support-platform` addresses the whole Foundry
+project as a single unit.
 
 ## How this would be authored after init
 
 `azd ai agent init` produces a starter project with one hosted agent. The
-rest of the sections shown here would be added incrementally via the
-composition commands proposed in
-[#8049](https://github.com/Azure/azure-dev/issues/8049):
+rest of the sections shown here would be added via the composition commands
+in [#8049](https://github.com/Azure/azure-dev/issues/8049):
 
 ```bash
 azd ai project add model gpt-4.1
@@ -262,12 +249,14 @@ azd ai project add agent triage-agent --kind prompt
 azd ai project add skill code-review --instructions ./prompts/code-review.md
 ```
 
-Each command edits `azure.yaml` in place, externalizes credentials to the
-azd environment, and prints what code or follow-up steps are needed.
+Each command edits the `azure.yaml` Foundry service's `config:` block,
+externalizes credentials to the azd environment, and prints what code or
+follow-up steps remain.
 
 ## See also
 
-* [`simple`](../../tree/simple) branch -- minimum viable Foundry project
-* [`main`](../../tree/main) branch -- repo overview and decision rationale
-* [#7962](https://github.com/Azure/azure-dev/issues/7962) -- the unified-config proposal
+* [`simple`](../../tree/simple) -- minimum viable Foundry project
+* [`main`](../../tree/main) -- repo overview, decision rationale, and
+  engineering brief
+* [#7962](https://github.com/Azure/azure-dev/issues/7962) -- unified-config proposal
 * [#8049](https://github.com/Azure/azure-dev/issues/8049) -- composition commands
