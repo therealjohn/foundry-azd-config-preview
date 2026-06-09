@@ -7,29 +7,40 @@ metadata:
 services:
   # =============================================================================
   # The Foundry project IS the service. Everything Foundry-scoped is a direct
-  # property of this entry: deployments, connections, toolboxes, skills,
-  # routines, and all agent definitions (with their code/build). No `config:`
-  # indirection -- the host kind's schema is composed at the service-entry
-  # level the same way `host: containerapp` exposes its first-class fields.
+  # property of this entry. Field shapes for deployments, connections,
+  # toolboxes, and container.resources match the existing `azure.ai.agent.json`
+  # extension schema so the change does not also propose re-shaping things
+  # the agents extension already defines.
   # =============================================================================
   support-platform:
     host: microsoft.foundry
 
     # ---- Model deployments ----
-    # Created on the Foundry project during provision via Foundry APIs.
-    # Removing an entry here does NOT delete the deployment on the next
-    # deploy (matches Bicep semantics). Destructive operations route
-    # through `az` CLI or `azd down`.
     deployments:
-      - name: gpt-4.1
-        model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 50 }
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 20 }
-      - name: text-embedding-3-small
-        model: { format: OpenAI, name: text-embedding-3-small, version: "1" }
-        sku:   { name: Standard, capacity: 10 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1
+          version: "2025-04-14"
+        name: gpt-4.1
+        sku:
+          capacity: 50
+          name: GlobalStandard
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 20
+          name: GlobalStandard
+      - model:
+          format: OpenAI
+          name: text-embedding-3-small
+          version: "1"
+        name: text-embedding-3-small
+        sku:
+          capacity: 10
+          name: Standard
 
     # ---- Project connections ----
     # Two secret-management modes are shown:
@@ -64,37 +75,40 @@ services:
     # Reusable named bundles. Multiple agents reference the same toolbox by
     # name (impossible cleanly under the old per-agent agent.manifest.yaml).
     toolboxes:
-      support-toolbox:
+      - name: support-toolbox
         tools:
-          - { type: web_search }
-          - { type: code_interpreter }
-          - { type: file_search }
+          - type: web_search
+          - type: code_interpreter
+          - type: file_search
 
-      research-toolbox:
+      - name: research-toolbox
         tools:
-          - { type: web_search }
-          - { type: mcp,             connection: github-mcp-conn }
-          - { type: mcp,             connection: tavily-mcp-conn }
-          - { type: azure_ai_search, connection: azure-search-conn }
+          - type: web_search
+          - type: mcp
+            connection: github-mcp-conn
+          - type: mcp
+            connection: tavily-mcp-conn
+          - type: azure_ai_search
+            connection: azure-search-conn
 
     # ---- Skills ----
     # Reusable capability bundles. instructions: accepts a string (inline)
     # or a file path (markdown). File-backed instructions are friendlier
     # to git diffs.
     skills:
-      code-review:
+      - name: code-review
         description: Reviews code for bugs and style issues
         instructions: ./prompts/code-review.md
         tools: [file_search, code_interpreter]
 
-      triage:
+      - name: triage
         description: Routes customer questions to specialist agents
         instructions: ./prompts/triage.md
 
     # ---- Routines ----
     # Scheduled or event-driven agent invocations.
     routines:
-      nightly-ticket-summary:
+      - name: nightly-ticket-summary
         description: Summarize overnight support tickets each morning at 8am UTC
         trigger:
           type: schedule
@@ -109,7 +123,7 @@ services:
     agents:
 
       # ---- Prompt agent: no code, no source dir, no docker/runtime ----
-      triage-agent:
+      - name: triage-agent
         kind: prompt
         description: Routes customer questions to the right specialist agent
         instructions: |
@@ -123,7 +137,7 @@ services:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 
       # ---- Prompt agent backed by a skill ----
-      summarizer-agent:
+      - name: summarizer-agent
         kind: prompt
         description: Summarizes a batch of support tickets into actionable insights
         skill: triage
@@ -131,7 +145,7 @@ services:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 
       # ---- Hosted agent: code-deploy mode (runtime: present, no Dockerfile) ----
-      support-agent:
+      - name: support-agent
         kind: hosted
         description: Handles general customer support questions
         project: src/support-agent
@@ -140,18 +154,21 @@ services:
           version: "3.12"
         startupCommand: python main.py
         protocols:
-          - { protocol: responses, version: "1.0.0" }
+          - protocol: responses
+            version: "1.0.0"
         toolboxes: [support-toolbox]
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
         container:
-          resources: { cpu: "0.5", memory: "1Gi" }
+          resources:
+            cpu: "0.5"
+            memory: 1Gi
 
       # ---- Hosted agent: container mode (docker: present, Dockerfile in repo) ----
       # Note ${{...}} syntax: Foundry resolves these server-side from the
       # named project connection's stored credentials at runtime. azd's
       # ${VAR} expansion leaves ${{...}} untouched.
-      research-agent:
+      - name: research-agent
         kind: hosted
         description: Deep research using web search, MCP, and Azure AI Search
         project: src/research-agent
@@ -159,14 +176,17 @@ services:
           path: Dockerfile
           remoteBuild: true
         protocols:
-          - { protocol: responses, version: "1.0.0" }
+          - protocol: responses
+            version: "1.0.0"
         toolboxes: [research-toolbox]
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
           GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
-          TAVILY_API_KEY:   ${{connections.tavily-mcp-conn.credentials.key}}
+          TAVILY_API_KEY: ${{connections.tavily-mcp-conn.credentials.key}}
         container:
-          resources: { cpu: "1", memory: "2Gi" }
+          resources:
+            cpu: "1"
+            memory: 2Gi
 
   # =============================================================================
   # Non-Foundry service: customer-facing chat UI. Standard azd Container Apps
@@ -186,4 +206,4 @@ services:
       FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
       SUPPORT_AGENT_NAME: support-agent
       RESEARCH_AGENT_NAME: research-agent
-      TRIAGE_AGENT_NAME:  triage-agent
+      TRIAGE_AGENT_NAME: triage-agent

@@ -11,12 +11,15 @@ separate non-Foundry Container Apps frontend.
   deployments, connections, toolboxes, skills, routines, agents -- are
   direct properties of `services.support-platform`. No `config:`
   indirection. The service IS the Foundry project.
+* **Field shapes match the existing `azure.ai.agent.json` schema** for
+  deployments / connections / toolboxes / container.resources -- so this
+  is a shape change to where things live, not to the things themselves.
 * **Two hosted agents in different deploy modes**, nested with their code:
   * `support-agent` -- code-deploy via `runtime:` (zip upload)
   * `research-agent` -- container mode via `docker:` (Dockerfile in repo)
 * **Two prompt agents** -- pure config, no source dir, no docker/runtime:
   * `triage-agent` -- inline `instructions:` string
-  * `summarizer-agent` -- references `skills.triage`
+  * `summarizer-agent` -- references the `triage` skill
 * **Two named toolboxes** shared across agents
 * **Three connection types** (CustomKeys + ApiKey + ProjectManagedIdentity)
 * **Three model deployments** (chat large, chat mini, embeddings)
@@ -79,13 +82,18 @@ services:
 services:
   support-platform:
     deployments:
-      - name: gpt-4.1
-        model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 50 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1
+          version: "2025-04-14"
+        name: gpt-4.1
+        sku:
+          capacity: 50
+          name: GlobalStandard
 ```
 
-Project-scoped model deployments. Reconciled via Foundry APIs.
-Drop-from-config is non-destructive.
+Project-scoped model deployments. Same shape as today's `azure.ai.agent.json`
+schema. Reconciled via Foundry APIs. Drop-from-config is non-destructive.
 
 ### `connections`
 
@@ -112,15 +120,18 @@ Two secret modes shown:
 services:
   support-platform:
     toolboxes:
-      research-toolbox:
+      - name: research-toolbox
         tools:
-          - { type: web_search }
-          - { type: mcp,             connection: github-mcp-conn }
-          - { type: mcp,             connection: tavily-mcp-conn }
-          - { type: azure_ai_search, connection: azure-search-conn }
+          - type: web_search
+          - type: mcp
+            connection: github-mcp-conn
+          - type: mcp
+            connection: tavily-mcp-conn
+          - type: azure_ai_search
+            connection: azure-search-conn
 ```
 
-Named toolboxes; agents reference by name in `agents.<>.toolboxes`.
+Named toolboxes; agents reference by name in `agents[].toolboxes`.
 
 ### `skills`
 
@@ -128,7 +139,7 @@ Named toolboxes; agents reference by name in `agents.<>.toolboxes`.
 services:
   support-platform:
     skills:
-      code-review:
+      - name: code-review
         description: Reviews code for bugs and style issues
         instructions: ./prompts/code-review.md
         tools: [file_search, code_interpreter]
@@ -143,8 +154,10 @@ git-diff friendly.
 services:
   support-platform:
     routines:
-      nightly-ticket-summary:
-        trigger: { type: schedule, cron: "0 8 * * *" }
+      - name: nightly-ticket-summary
+        trigger:
+          type: schedule
+          cron: "0 8 * * *"
         agent: summarizer-agent
         input:
           ticket_source: ${TICKET_SOURCE_URL}
@@ -162,7 +175,7 @@ Prompt agent:
 
 ```yaml
 agents:
-  triage-agent:
+  - name: triage-agent
     kind: prompt
     description: Routes customer questions to the right specialist agent
     instructions: |
@@ -175,34 +188,49 @@ Hosted agent (code-deploy mode):
 
 ```yaml
 agents:
-  support-agent:
+  - name: support-agent
     kind: hosted
     description: Handles general customer support questions
     project: src/support-agent
-    runtime: { stack: python, version: "3.12" }
+    runtime:
+      stack: python
+      version: "3.12"
     startupCommand: python main.py
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
     toolboxes: [support-toolbox]
-    env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1 }
-    container: { resources: { cpu: "0.5", memory: "1Gi" } }
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
+    container:
+      resources:
+        cpu: "0.5"
+        memory: 1Gi
 ```
 
 Hosted agent (container mode):
 
 ```yaml
 agents:
-  research-agent:
+  - name: research-agent
     kind: hosted
     project: src/research-agent
-    docker: { path: Dockerfile, remoteBuild: true }
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    docker:
+      path: Dockerfile
+      remoteBuild: true
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
     toolboxes: [research-toolbox]
     env:
       FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
       # ${{...}} is Foundry server-side resolution. azd does NOT expand it.
       GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
-      TAVILY_API_KEY:   ${{connections.tavily-mcp-conn.credentials.key}}
-    container: { resources: { cpu: "1", memory: "2Gi" } }
+      TAVILY_API_KEY: ${{connections.tavily-mcp-conn.credentials.key}}
+    container:
+      resources:
+        cpu: "1"
+        memory: 2Gi
 ```
 
 Per-agent fields:
@@ -260,9 +288,9 @@ azd ai project add agent triage-agent --kind prompt
 azd ai project add skill code-review --instructions ./prompts/code-review.md
 ```
 
-Each command edits the Foundry service's properties in `azure.yaml`,
-externalizes credentials to the azd environment, and prints what code or
-follow-up steps remain.
+Each command appends to the corresponding array on the Foundry service in
+`azure.yaml`, externalizes credentials to the azd environment, and prints
+what code or follow-up steps remain.
 
 ## See also
 
