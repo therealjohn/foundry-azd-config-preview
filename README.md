@@ -14,12 +14,17 @@ separate non-Foundry Container Apps frontend.
 * **Field shapes match the existing `azure.ai.agent.json` schema** for
   deployments / connections / toolboxes / container.resources -- so this
   is a shape change to where things live, not to the things themselves.
-* **Validated against the proposed schemas on `main`.** The
-  `# yaml-language-server: $schema=` directive points at
-  [`schemas/azure.yaml.json`](../../tree/main/schemas) -- a per-resource
-  JSON Schema split modeled on the
-  [microsoft/AgentSchema](https://github.com/microsoft/AgentSchema/tree/main/schemas/v1.0)
-  pattern.
+* **Validated against the proposed schemas on `main`.** The top-level
+  `# yaml-language-server: $schema=` directive points at azd core's
+  existing `azure.yaml.json` (since the top-level schema is owned by
+  core). Once the proposed `host: microsoft.foundry` conditional lands
+  in core's schema, validation chains through to
+  [`schemas/microsoft.foundry.json`](../../tree/main/schemas) and the
+  per-resource sub-schemas (modeled on
+  [microsoft/AgentSchema](https://github.com/microsoft/AgentSchema/tree/main/schemas/v1.0)).
+  The extracted files under `agents/`, `toolboxes/`, and `skills/`
+  reference those per-resource schemas directly via their own
+  `yaml-language-server` directives, so they validate standalone today.
 * **Data-side `$ref:` imports for the larger definitions:**
   * `agents/support-agent.yaml` and `agents/research-agent.yaml` --
     hosted agents (runtime + container settings + protocols) live in
