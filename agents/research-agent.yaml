@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/Agent.json
+
+name: research-agent
+kind: hosted
+description: Deep research using web search, MCP, and Azure AI Search
+# Per-agent source dir path is relative to THIS file, not azure.yaml.
+project: ../src/research-agent
+docker:
+  path: Dockerfile
+  remoteBuild: true
+protocols:
+  - protocol: responses
+    version: "1.0.0"
+toolboxes: [research-toolbox]
+env:
+  FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
+  # ${{...}} is Foundry server-side resolution. azd does NOT expand it.
+  # Connection name lookups still resolve against the project's connections[],
+  # which are declared in (or referenced from) azure.yaml.
+  GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
+  TAVILY_API_KEY: ${{connections.tavily-mcp-conn.credentials.key}}
+container:
+  resources:
+    cpu: "1"
+    memory: 2Gi

@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/Agent.json
+
+name: support-agent
+kind: hosted
+description: Handles general customer support questions
+# Per-agent source dir path is relative to THIS file, not azure.yaml.
+project: ../src/support-agent
+runtime:
+  stack: python
+  version: "3.12"
+startupCommand: python main.py
+protocols:
+  - protocol: responses
+    version: "1.0.0"
+toolboxes: [support-toolbox]
+env:
+  FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
+container:
+  resources:
+    cpu: "0.5"
+    memory: 1Gi

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/Skill.json
+
+name: code-review
+description: Reviews code for bugs and style issues
+# `instructions` path is relative to THIS file. The prompt itself lives
+# at ../prompts/code-review.md.
+instructions: ../prompts/code-review.md
+tools: [file_search, code_interpreter]

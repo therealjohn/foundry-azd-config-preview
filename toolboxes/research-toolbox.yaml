@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/Toolbox.json
+
+name: research-toolbox
+description: Web + MCP + RAG tools used by the research-agent
+tools:
+  - type: web_search
+  - type: mcp
+    connection: github-mcp-conn
+  - type: mcp
+    connection: tavily-mcp-conn
+  - type: azure_ai_search
+    connection: azure-search-conn

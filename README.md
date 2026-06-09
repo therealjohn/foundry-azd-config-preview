@@ -14,7 +14,21 @@ separate non-Foundry Container Apps frontend.
 * **Field shapes match the existing `azure.ai.agent.json` schema** for
   deployments / connections / toolboxes / container.resources -- so this
   is a shape change to where things live, not to the things themselves.
-* **Two hosted agents in different deploy modes**, nested with their code:
+* **Validated against the proposed schemas on `main`.** The
+  `# yaml-language-server: $schema=` directive points at
+  [`schemas/azure.yaml.json`](../../tree/main/schemas) -- a per-resource
+  JSON Schema split modeled on the
+  [microsoft/AgentSchema](https://github.com/microsoft/AgentSchema/tree/main/schemas/v1.0)
+  pattern.
+* **Data-side `$ref:` imports for the larger definitions:**
+  * `agents/support-agent.yaml` and `agents/research-agent.yaml` --
+    hosted agents (runtime + container settings + protocols) live in
+    their own files
+  * `toolboxes/research-toolbox.yaml` -- the connection-backed toolbox
+  * `skills/code-review.yaml` -- skill with instructions + tools list
+  * Smaller things (prompt agents, the simpler toolbox, inline skill,
+    routines, deployments, connections) stay inline for contrast
+* **Two hosted agents in different deploy modes**:
   * `support-agent` -- code-deploy via `runtime:` (zip upload)
   * `research-agent` -- container mode via `docker:` (Dockerfile in repo)
 * **Two prompt agents** -- pure config, no source dir, no docker/runtime:
@@ -35,12 +49,19 @@ separate non-Foundry Container Apps frontend.
 
 ```
 .
-├── azure.yaml                <- the only Foundry-aware config file
+├── azure.yaml                <- main config; references files below via $ref
 ├── .env.example
 ├── .gitignore
+├── agents/                   <- extracted hosted agent definitions
+│   ├── support-agent.yaml
+│   └── research-agent.yaml
+├── toolboxes/                <- extracted toolbox definitions
+│   └── research-toolbox.yaml
+├── skills/                   <- extracted skill definitions
+│   └── code-review.yaml
 ├── prompts/
 │   ├── code-review.md        <- code-review skill instructions
-│   └── triage.md             <- triage skill instructions
+│   └── triage.md             <- triage skill instructions (inline skill, but file-backed prompt)
 └── src/
     ├── support-agent/        <- code-deploy mode; no Dockerfile
     │   ├── main.py

@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/schemas/v1.0/azure.yaml.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/azure.yaml.json
 
 name: customer-support-platform
 metadata:
@@ -7,15 +7,14 @@ metadata:
 services:
   # =============================================================================
   # The Foundry project IS the service. Everything Foundry-scoped is a direct
-  # property of this entry. Field shapes for deployments, connections,
-  # toolboxes, and container.resources match the existing `azure.ai.agent.json`
-  # extension schema so the change does not also propose re-shaping things
-  # the agents extension already defines.
+  # property of this entry. This branch demonstrates BOTH inline definitions
+  # (small ones) AND data-side `$ref:` imports (large ones split into their
+  # own files under agents/, toolboxes/, skills/).
   # =============================================================================
   support-platform:
     host: microsoft.foundry
 
-    # ---- Model deployments ----
+    # ---- Model deployments (all inline -- small entries) ----
     deployments:
       - model:
           format: OpenAI
@@ -42,11 +41,7 @@ services:
           capacity: 10
           name: Standard
 
-    # ---- Project connections ----
-    # Two secret-management modes are shown:
-    #   1. azd-environment-managed: `${ENV_VAR}` -- azd resolves at deploy
-    #      time from .azure/<env>/.env and posts to Foundry.
-    #   2. Foundry-managed identity: no secret on disk. Project MI authn.
+    # ---- Project connections (all inline) ----
     connections:
       - name: github-mcp-conn
         category: CustomKeys
@@ -72,8 +67,9 @@ services:
         authType: ProjectManagedIdentity
 
     # ---- Toolboxes ----
-    # Reusable named bundles. Multiple agents reference the same toolbox by
-    # name (impossible cleanly under the old per-agent agent.manifest.yaml).
+    # support-toolbox stays inline (small).
+    # research-toolbox is split into its own file (connection-backed tools
+    # listed in one place, easier to review independently).
     toolboxes:
       - name: support-toolbox
         tools:
@@ -81,32 +77,18 @@ services:
           - type: code_interpreter
           - type: file_search
 
-      - name: research-toolbox
-        tools:
-          - type: web_search
-          - type: mcp
-            connection: github-mcp-conn
-          - type: mcp
-            connection: tavily-mcp-conn
-          - type: azure_ai_search
-            connection: azure-search-conn
+      - $ref: ./toolboxes/research-toolbox.yaml
 
     # ---- Skills ----
-    # Reusable capability bundles. instructions: accepts a string (inline)
-    # or a file path (markdown). File-backed instructions are friendlier
-    # to git diffs.
+    # triage stays inline; code-review is extracted (longer + has tools list).
     skills:
-      - name: code-review
-        description: Reviews code for bugs and style issues
-        instructions: ./prompts/code-review.md
-        tools: [file_search, code_interpreter]
-
       - name: triage
         description: Routes customer questions to specialist agents
         instructions: ./prompts/triage.md
 
-    # ---- Routines ----
-    # Scheduled or event-driven agent invocations.
+      - $ref: ./skills/code-review.yaml
+
+    # ---- Routines (inline) ----
     routines:
       - name: nightly-ticket-summary
         description: Summarize overnight support tickets each morning at 8am UTC
@@ -118,11 +100,11 @@ services:
           ticket_source: ${TICKET_SOURCE_URL}
 
     # ---- Agents ----
-    # All agent definitions live here. Hosted agents carry both their
-    # Foundry definition AND their code/build settings in one entry.
+    # Prompt agents stay inline (small).
+    # Hosted agents -- which carry runtime config + container settings +
+    # protocols -- are split into their own files. Easier to review per-agent
+    # changes; the agent file can be schema-validated standalone.
     agents:
-
-      # ---- Prompt agent: no code, no source dir, no docker/runtime ----
       - name: triage-agent
         kind: prompt
         description: Routes customer questions to the right specialist agent
@@ -136,7 +118,6 @@ services:
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 
-      # ---- Prompt agent backed by a skill ----
       - name: summarizer-agent
         kind: prompt
         description: Summarizes a batch of support tickets into actionable insights
@@ -144,55 +125,11 @@ services:
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 
-      # ---- Hosted agent: code-deploy mode (runtime: present, no Dockerfile) ----
-      - name: support-agent
-        kind: hosted
-        description: Handles general customer support questions
-        project: src/support-agent
-        runtime:
-          stack: python
-          version: "3.12"
-        startupCommand: python main.py
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
-        toolboxes: [support-toolbox]
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
-        container:
-          resources:
-            cpu: "0.5"
-            memory: 1Gi
-
-      # ---- Hosted agent: container mode (docker: present, Dockerfile in repo) ----
-      # Note ${{...}} syntax: Foundry resolves these server-side from the
-      # named project connection's stored credentials at runtime. azd's
-      # ${VAR} expansion leaves ${{...}} untouched.
-      - name: research-agent
-        kind: hosted
-        description: Deep research using web search, MCP, and Azure AI Search
-        project: src/research-agent
-        docker:
-          path: Dockerfile
-          remoteBuild: true
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
-        toolboxes: [research-toolbox]
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
-          GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
-          TAVILY_API_KEY: ${{connections.tavily-mcp-conn.credentials.key}}
-        container:
-          resources:
-            cpu: "1"
-            memory: 2Gi
+      - $ref: ./agents/support-agent.yaml
+      - $ref: ./agents/research-agent.yaml
 
   # =============================================================================
-  # Non-Foundry service: customer-facing chat UI. Standard azd Container Apps
-  # entry. Coexists with the Foundry project service in the same azure.yaml.
-  # `uses:` orders it after the Foundry project so its env points at real
-  # endpoints.
+  # Non-Foundry service: customer-facing chat UI.
   # =============================================================================
   webapp:
     project: src/webapp
