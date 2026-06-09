@@ -10,12 +10,13 @@ The CLI changes that produce these files have not shipped. The Python in
 the sample branches is illustrative -- it would compile and run against a
 real Foundry endpoint, but most logic is stubbed.
 
-## Branches
+## Branches and folders
 
-| Branch | Demonstrates |
+| Branch / folder | Demonstrates |
 |---|---|
 | [`simple`](../../tree/simple) | One hosted agent + one model deployment under a single `host: microsoft.foundry` service entry. ~40-line `azure.yaml`. The minimum a Foundry project can be. |
-| [`complex`](../../tree/complex) | Multi-agent platform: 2 hosted + 2 prompt agents (both `runtime:`/`docker:` deploy modes shown), shared toolboxes with web search / code interpreter / MCP / Azure AI Search, three connection types (incl. `${{...}}` server-side resolution), 3 model deployments, 2 file-backed skills, a scheduled routine, all under one Foundry service entry -- plus a separate non-Foundry Container Apps frontend that consumes the agents. |
+| [`complex`](../../tree/complex) | Multi-agent platform: 2 hosted + 2 prompt agents (both `runtime:`/`docker:` deploy modes shown), shared toolboxes with web search / code interpreter / MCP / Azure AI Search, three connection types (incl. `${{...}}` server-side resolution), 3 model deployments, 2 file-backed skills, a scheduled routine, all under one Foundry service entry -- plus a separate non-Foundry Container Apps frontend that consumes the agents. Also shows **data-side `$ref:` imports** for agents, toolboxes, and skills (split into `agents/`, `toolboxes/`, `skills/` sub-folders). |
+| [`schemas/`](./schemas) (this branch) | Proposed JSON Schema files for `host: microsoft.foundry`, split per-resource (`Deployment.json`, `Connection.json`, `Toolbox.json`, `Skill.json`, `Routine.json`, `Agent.json`) and composed via `$ref` -- modeled on the [microsoft/AgentSchema](https://github.com/microsoft/AgentSchema/tree/main/schemas/v1.0) pattern. Each per-resource schema accepts either an inline definition or a `$ref` to an external file via `oneOf`. |
 
 For copy-pasteable snippets covering individual scenarios (single vs.
 multi-agent, new vs. existing resource references, Docker local/remote,

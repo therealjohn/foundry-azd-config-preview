@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/azure.yaml.json",
+  "title": "Mockup azure.yaml with host: microsoft.foundry support",
+  "description": "Slim mockup of azd core's azure.yaml schema, extended with the proposed host: microsoft.foundry conditional. Focuses on the Foundry parts and lets other host kinds pass through with minimal validation. In the real proposal, this conditional would be added to Azure/azure-dev's schemas/v1.0/azure.yaml.json directly.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": { "type": "string" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["host"],
+        "additionalProperties": true,
+        "properties": {
+          "host":     { "type": "string" },
+          "uses":     { "type": "array", "items": { "type": "string" } },
+          "project":  { "type": "string" },
+          "language": { "type": "string" },
+          "docker":   { "type": "object", "additionalProperties": true },
+          "runtime":  { "type": "object", "additionalProperties": true },
+          "image":    { "type": "string" },
+          "env":      { "type": "object", "additionalProperties": { "type": "string" } }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "host": { "const": "microsoft.foundry" } },
+              "required": ["host"]
+            },
+            "then": {
+              "allOf": [{ "$ref": "microsoft.foundry.json" }],
+              "properties": {
+                "project": false,
+                "docker":  false,
+                "runtime": false,
+                "image":   false
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
