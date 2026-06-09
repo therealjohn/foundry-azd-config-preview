@@ -4,6 +4,13 @@ Copy-pasteable snippets for the unified `azure.yaml` shape. Each example
 is the minimum YAML that expresses one scenario -- omit anything you don't
 need; the extension will fill in sensible defaults.
 
+Field shapes (`deployments`, `connections`, `toolboxes`, `container.resources`,
+etc.) match the existing
+[`azure.ai.agent.json`](https://github.com/Azure/azure-dev/blob/main/cli/azd/extensions/azure.ai.agents/schemas/azure.ai.agent.json)
+schema the agents extension already publishes. Collections are arrays of
+objects with a `name:` field. Nested objects use multi-line YAML, not
+inline `{}` form.
+
 All examples assume:
 
 ```yaml
@@ -100,13 +107,16 @@ services:
     host: microsoft.foundry
     # No `endpoint:` -- azd provisions a new Foundry project.
 
-    # ---- Model deployments ----
     deployments:
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 10 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 10
+          name: GlobalStandard
 
-    # ---- Project connections ----
     connections:
       - name: github-mcp-conn
         category: CustomKeys
@@ -117,24 +127,22 @@ services:
         metadata:
           type: custom_MCP
 
-    # ---- Toolboxes ----
     toolboxes:
-      my-toolbox:
+      - name: my-toolbox
         tools:
-          - { type: web_search }
-          - { type: code_interpreter }
-          - { type: mcp, connection: github-mcp-conn }
+          - type: web_search
+          - type: code_interpreter
+          - type: mcp
+            connection: github-mcp-conn
 
-    # ---- Skills ----
     skills:
-      code-review:
+      - name: code-review
         description: Reviews code for bugs and style issues
         instructions: ./prompts/code-review.md
         tools: [file_search, code_interpreter]
 
-    # ---- Agents ----
     agents:
-      my-agent:
+      - name: my-agent
         kind: hosted
         description: General-purpose assistant with web, code, and GitHub MCP tools.
         project: src/my-agent
@@ -142,14 +150,17 @@ services:
           path: Dockerfile
           remoteBuild: true
         protocols:
-          - { protocol: responses, version: "1.0.0" }
+          - protocol: responses
+            version: "1.0.0"
         startupCommand: python main.py
         toolboxes: [my-toolbox]
         skill: code-review
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
         container:
-          resources: { cpu: "0.5", memory: "1Gi" }
+          resources:
+            cpu: "0.5"
+            memory: 1Gi
 ```
 
 The accompanying file layout `azd ai agent init` would produce:
@@ -194,15 +205,24 @@ services:
   my-project:
     host: microsoft.foundry
     deployments:
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 10 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 10
+          name: GlobalStandard
     agents:
-      my-agent:
+      - name: my-agent
         kind: hosted
         project: src/my-agent
-        docker: { path: Dockerfile, remoteBuild: true }
-        protocols: [{ protocol: responses, version: "1.0.0" }]
+        docker:
+          path: Dockerfile
+          remoteBuild: true
+        protocols:
+          - protocol: responses
+            version: "1.0.0"
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
@@ -214,22 +234,37 @@ services:
   my-project:
     host: microsoft.foundry
     deployments:
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 20 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 20
+          name: GlobalStandard
     agents:
-      support-agent:
+      - name: support-agent
         kind: hosted
         project: src/support-agent
-        runtime: { stack: python, version: "3.12" }
-        protocols: [{ protocol: responses, version: "1.0.0" }]
-        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
-      research-agent:
+        runtime:
+          stack: python
+          version: "3.12"
+        protocols:
+          - protocol: responses
+            version: "1.0.0"
+        env:
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+      - name: research-agent
         kind: hosted
         project: src/research-agent
-        docker: { path: Dockerfile, remoteBuild: true }
-        protocols: [{ protocol: responses, version: "1.0.0" }]
-        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
+        docker:
+          path: Dockerfile
+          remoteBuild: true
+        protocols:
+          - protocol: responses
+            version: "1.0.0"
+        env:
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 ### Prompt-only agent
@@ -242,11 +277,16 @@ services:
   my-project:
     host: microsoft.foundry
     deployments:
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 10 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 10
+          name: GlobalStandard
     agents:
-      triage-agent:
+      - name: triage-agent
         kind: prompt
         description: Routes customer questions to a specialist
         instructions: |
@@ -264,24 +304,40 @@ services:
   my-project:
     host: microsoft.foundry
     deployments:
-      - name: gpt-4.1
-        model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 50 }
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 20 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1
+          version: "2025-04-14"
+        name: gpt-4.1
+        sku:
+          capacity: 50
+          name: GlobalStandard
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 20
+          name: GlobalStandard
     agents:
-      triage-agent:                # prompt, no code
+      - name: triage-agent                # prompt, no code
         kind: prompt
         instructions: |
           You are a triage agent...
-        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
-      support-agent:               # hosted, has code
+        env:
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+      - name: support-agent               # hosted, has code
         kind: hosted
         project: src/support-agent
-        runtime: { stack: python, version: "3.12" }
-        protocols: [{ protocol: responses, version: "1.0.0" }]
-        env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1 }
+        runtime:
+          stack: python
+          version: "3.12"
+        protocols:
+          - protocol: responses
+            version: "1.0.0"
+        env:
+          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
 ```
 
 ---
@@ -324,9 +380,14 @@ services:
 
 ```yaml
 deployments:
-  - name: gpt-4.1
-    model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
-    sku:   { name: GlobalStandard, capacity: 50 }
+  - model:
+      format: OpenAI
+      name: gpt-4.1
+      version: "2025-04-14"
+    name: gpt-4.1
+    sku:
+      capacity: 50
+      name: GlobalStandard
 ```
 
 ### Reference an existing model deployment
@@ -339,7 +400,7 @@ at deploy time. Nothing for azd to manage.
 ```yaml
 # No deployments: entry needed.
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     env:
       FOUNDRY_MODEL_DEPLOYMENT_NAME: existing-shared-model
@@ -352,15 +413,30 @@ declared but referenced by name is treated as existing.
 
 ```yaml
 deployments:
-  - name: gpt-4.1
-    model: { format: OpenAI, name: gpt-4.1, version: "2025-04-14" }
-    sku:   { name: GlobalStandard, capacity: 50 }
-  - name: gpt-4.1-mini
-    model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-    sku:   { name: GlobalStandard, capacity: 20 }
-  - name: text-embedding-3-small
-    model: { format: OpenAI, name: text-embedding-3-small, version: "1" }
-    sku:   { name: Standard, capacity: 10 }
+  - model:
+      format: OpenAI
+      name: gpt-4.1
+      version: "2025-04-14"
+    name: gpt-4.1
+    sku:
+      capacity: 50
+      name: GlobalStandard
+  - model:
+      format: OpenAI
+      name: gpt-4.1-mini
+      version: "2025-04-14"
+    name: gpt-4.1-mini
+    sku:
+      capacity: 20
+      name: GlobalStandard
+  - model:
+      format: OpenAI
+      name: text-embedding-3-small
+      version: "1"
+    name: text-embedding-3-small
+    sku:
+      capacity: 10
+      name: Standard
 # `shared-batch-model` exists on the project (provisioned by another team)
 # and is just referenced by name from any agent that needs it -- not declared here.
 ```
@@ -425,9 +501,10 @@ extension verifies presence at deploy.
 ```yaml
 # No connections: entry needed.
 toolboxes:
-  research-toolbox:
+  - name: research-toolbox
     tools:
-      - { type: mcp, connection: shared-mcp-conn }   # references existing connection
+      - type: mcp
+        connection: shared-mcp-conn   # references existing connection
 ```
 
 ---
@@ -438,11 +515,11 @@ toolboxes:
 
 ```yaml
 toolboxes:
-  basic-toolbox:
+  - name: basic-toolbox
     tools:
-      - { type: web_search }
-      - { type: code_interpreter }
-      - { type: file_search }
+      - type: web_search
+      - type: code_interpreter
+      - type: file_search
 ```
 
 ### Toolbox with connection-backed tools
@@ -453,15 +530,19 @@ connections:
     category: CustomKeys
     target: https://api.githubcopilot.com/mcp
     authType: CustomKeys
-    credentials: { x-api-key: ${GITHUB_MCP_TOKEN} }
-    metadata: { type: custom_MCP }
+    credentials:
+      x-api-key: ${GITHUB_MCP_TOKEN}
+    metadata:
+      type: custom_MCP
 
 toolboxes:
-  research-toolbox:
+  - name: research-toolbox
     tools:
-      - { type: web_search }
-      - { type: mcp,             connection: github-mcp-conn }
-      - { type: azure_ai_search, connection: azure-search-conn }
+      - type: web_search
+      - type: mcp
+        connection: github-mcp-conn
+      - type: azure_ai_search
+        connection: azure-search-conn
 ```
 
 ### Reference an existing toolbox
@@ -473,10 +554,12 @@ Toolbox already exists on the Foundry project (e.g., created via
 ```yaml
 # No toolboxes: entry needed.
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
-    docker: { path: Dockerfile, remoteBuild: true }
+    docker:
+      path: Dockerfile
+      remoteBuild: true
     toolboxes: [shared-toolbox]                  # references existing toolbox
 ```
 
@@ -487,21 +570,25 @@ One toolbox, multiple consumers -- the problem the old per-agent
 
 ```yaml
 toolboxes:
-  shared-tools:
+  - name: shared-tools
     tools:
-      - { type: web_search }
-      - { type: code_interpreter }
+      - type: web_search
+      - type: code_interpreter
 
 agents:
-  support-agent:
+  - name: support-agent
     kind: hosted
     project: src/support-agent
-    runtime: { stack: python, version: "3.12" }
+    runtime:
+      stack: python
+      version: "3.12"
     toolboxes: [shared-tools]
-  research-agent:
+  - name: research-agent
     kind: hosted
     project: src/research-agent
-    docker: { path: Dockerfile, remoteBuild: true }
+    docker:
+      path: Dockerfile
+      remoteBuild: true
     toolboxes: [shared-tools]
 ```
 
@@ -516,15 +603,17 @@ name from one or more agents.
 
 ```yaml
 toolboxes:
-  my-toolbox:
+  - name: my-toolbox
     tools:
-      - { type: web_search }
-      - { type: code_interpreter }
+      - type: web_search
+      - type: code_interpreter
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
-    runtime: { stack: python, version: "3.12" }
+    runtime:
+      stack: python
+      version: "3.12"
     toolboxes: [my-toolbox]
 ```
 
@@ -535,13 +624,16 @@ The agent's `tools:` list takes the same tool entries a toolbox would.
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
-    runtime: { stack: python, version: "3.12" }
+    runtime:
+      stack: python
+      version: "3.12"
     tools:
-      - { type: web_search }
-      - { type: mcp, connection: github-mcp-conn }
+      - type: web_search
+      - type: mcp
+        connection: github-mcp-conn
 ```
 
 The connection still has to be declared in the parent service's
@@ -551,19 +643,22 @@ The connection still has to be declared in the parent service's
 
 ```yaml
 toolboxes:
-  shared-tools:
+  - name: shared-tools
     tools:
-      - { type: web_search }
-      - { type: code_interpreter }
+      - type: web_search
+      - type: code_interpreter
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
-    runtime: { stack: python, version: "3.12" }
+    runtime:
+      stack: python
+      version: "3.12"
     toolboxes: [shared-tools]                    # reusable bundle
     tools:                                       # agent-specific extras
-      - { type: file_search }
-      - { type: mcp, connection: github-mcp-conn }
+      - type: file_search
+      - type: mcp
+        connection: github-mcp-conn
 ```
 
 ---
@@ -576,7 +671,7 @@ Best for short prompts (a paragraph or two).
 
 ```yaml
 skills:
-  classifier:
+  - name: classifier
     description: Classifies user intent into one of 5 categories
     instructions: |
       Read the user message and respond with a single JSON object:
@@ -590,7 +685,7 @@ git diffs and to non-developer prompt authors.
 
 ```yaml
 skills:
-  code-review:
+  - name: code-review
     description: Reviews code for bugs and style issues
     instructions: ./prompts/code-review.md
     tools: [file_search, code_interpreter]
@@ -603,7 +698,7 @@ skills:
 ```yaml
 # No skills: entry needed.
 agents:
-  my-agent:
+  - name: my-agent
     kind: prompt
     skill: shared-skill                          # references existing skill
 ```
@@ -612,14 +707,15 @@ agents:
 
 ```yaml
 skills:
-  triage:
+  - name: triage
     description: Routes questions to specialists
     instructions: ./prompts/triage.md
 agents:
-  triage-agent:
+  - name: triage-agent
     kind: prompt
     skill: triage                                # reference by name
-    env: { FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini }
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 ---
@@ -633,7 +729,7 @@ supplied input.
 
 ```yaml
 routines:
-  nightly-summary:
+  - name: nightly-summary
     description: Summarize overnight tickets at 8am UTC
     trigger:
       type: schedule
@@ -650,7 +746,7 @@ shape is illustrative).
 
 ```yaml
 routines:
-  on-ticket-created:
+  - name: on-ticket-created
     description: Triage every new support ticket as it arrives
     trigger:
       type: webhook
@@ -674,13 +770,15 @@ Fastest for iteration when you have Docker installed.
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
     docker:
       path: Dockerfile
       remoteBuild: false                       # default if omitted
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 ```
 
 ### Remote build (ACR)
@@ -690,13 +788,15 @@ server-side. Best for CI environments without Docker.
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
     docker:
       path: Dockerfile
       remoteBuild: true
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 ```
 
 ### Pre-built image (no Dockerfile)
@@ -706,10 +806,12 @@ Skip the build entirely; deploy an image already in a registry. No
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     image: myregistry.azurecr.io/my-agent:v1.2.3
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 ```
 
 ---
@@ -725,14 +827,16 @@ azd zips the project directory locally and uploads to Foundry.
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
     runtime:
       stack: python
       version: "3.12"
     startupCommand: python main.py
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 ```
 
 ### Python -- remote build
@@ -742,7 +846,7 @@ Python isn't available or wheels differ across platforms.
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -750,35 +854,41 @@ agents:
       version: "3.12"
       remoteBuild: true
     startupCommand: python main.py
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 ```
 
 ### .NET
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
     runtime:
       stack: dotnet
       version: "8.0"
     startupCommand: dotnet MyAgent.dll
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 ```
 
 ### Node.js
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
     runtime:
       stack: node
       version: "20"
     startupCommand: node server.js
-    protocols: [{ protocol: responses, version: "1.0.0" }]
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 ```
 
 ---
@@ -809,10 +919,12 @@ the developer's disk -- e.g., a credential stored in a connection.
 
 ```yaml
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
-    runtime: { stack: python, version: "3.12" }
+    runtime:
+      stack: python
+      version: "3.12"
     env:
       # Foundry reads the live credential from the named connection at
       # runtime and injects it as GITHUB_MCP_TOKEN inside the agent process.
@@ -829,10 +941,12 @@ server-side at runtime. The developer never sees or stores the secret.
 ```yaml
 # No connections: entry needed -- github-mcp-conn exists on the Foundry project.
 agents:
-  my-agent:
+  - name: my-agent
     kind: hosted
     project: src/my-agent
-    runtime: { stack: python, version: "3.12" }
+    runtime:
+      stack: python
+      version: "3.12"
     env:
       GITHUB_MCP_TOKEN: ${{connections.github-mcp-conn.credentials.x-api-key}}
 ```
@@ -860,20 +974,25 @@ services:
   my-project:
     host: microsoft.foundry
     deployments:
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 10 }
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 10
+          name: GlobalStandard
     agents:
-      research-agent:
-        $ref: ./agents/research-agent.yaml
+      - $ref: ./agents/research-agent.yaml
 ```
 
-In `./agents/research-agent.yaml` (the agent definition; no `name:` --
-that comes from the key in the parent map):
+In `./agents/research-agent.yaml` (the agent definition -- includes
+`name:` like any inline agent entry):
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/cli/azd/extensions/azure.ai.agents/schemas/agent.json
 
+name: research-agent
 kind: hosted
 description: Deep research agent.
 project: ../src/research-agent
@@ -881,13 +1000,16 @@ docker:
   path: Dockerfile
   remoteBuild: true
 protocols:
-  - { protocol: responses, version: "1.0.0" }
+  - protocol: responses
+    version: "1.0.0"
 startupCommand: python main.py
 toolboxes: [research-toolbox]
 env:
   FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 container:
-  resources: { cpu: "1", memory: "2Gi" }
+  resources:
+    cpu: "1"
+    memory: 2Gi
 ```
 
 Relative paths inside the referenced file (like `project: ../src/...`)
@@ -906,14 +1028,14 @@ services:
   my-project:
     host: microsoft.foundry
     toolboxes:
-      research-toolbox:
-        $ref: ./toolboxes/research-toolbox.json
+      - $ref: ./toolboxes/research-toolbox.json
 ```
 
 In `./toolboxes/research-toolbox.json`:
 
 ```json
 {
+  "name": "research-toolbox",
   "tools": [
     { "type": "web_search" },
     { "type": "code_interpreter" },
@@ -940,14 +1062,14 @@ services:
       - $ref: ./resources/tavily-mcp-conn.json
 
     toolboxes:
-      shared-tools: { $ref: ./toolboxes/shared-tools.yaml }
+      - $ref: ./toolboxes/shared-tools.yaml
 
     skills:
-      code-review: { $ref: ./skills/code-review.yaml }
+      - $ref: ./skills/code-review.yaml
 
     agents:
-      research-agent: { $ref: ./agents/research-agent.yaml }
-      triage-agent:   { $ref: ./agents/triage-agent.yaml }
+      - $ref: ./agents/research-agent.yaml
+      - $ref: ./agents/triage-agent.yaml
 ```
 
 ### Absolute vs. relative paths
@@ -959,10 +1081,8 @@ referenced from multiple sub-projects.
 
 ```yaml
 agents:
-  shared-agent:
-    $ref: /Users/me/work/shared-foundry-defs/agents/customer-support.yaml
-  windows-shared-agent:
-    $ref: C:\work\shared-foundry-defs\agents\customer-support.yaml
+  - $ref: /Users/me/work/shared-foundry-defs/agents/customer-support.yaml
+  - $ref: C:\work\shared-foundry-defs\agents\customer-support.yaml
 ```
 
 Prefer relative paths in committed code -- absolute paths break for other
@@ -976,14 +1096,15 @@ definition:
 
 ```yaml
 agents:
-  research-agent:
-    $ref: ./agents/research-agent.yaml
+  - $ref: ./agents/research-agent.yaml
     # Overrides applied on top of the loaded file:
     env:
-      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1   # base file used gpt-4.1-mini
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1     # base file used gpt-4.1-mini
       LOG_LEVEL: debug
     container:
-      resources: { cpu: "2", memory: "4Gi" }   # bigger box for this overlay
+      resources:
+        cpu: "2"
+        memory: 4Gi                              # bigger box for this overlay
 ```
 
 Override semantics: scalar fields replace; map fields shallow-merge by
@@ -1002,19 +1123,33 @@ project so their env vars point at real endpoints.
 services:
   my-project:
     host: microsoft.foundry
-    deployments: [ ... ]
+    deployments:
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 10
+          name: GlobalStandard
     agents:
-      api-agent:
+      - name: api-agent
         kind: hosted
         project: src/api-agent
-        docker: { path: Dockerfile, remoteBuild: true }
-        protocols: [{ protocol: responses, version: "1.0.0" }]
+        docker:
+          path: Dockerfile
+          remoteBuild: true
+        protocols:
+          - protocol: responses
+            version: "1.0.0"
 
   webapp:
     project: src/webapp
     host: containerapp
     language: js
-    docker: { path: Dockerfile, remoteBuild: true }
+    docker:
+      path: Dockerfile
+      remoteBuild: true
     uses: [my-project]                         # deploy after Foundry project
     env:
       FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
