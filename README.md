@@ -126,5 +126,9 @@ agents nested in the service entry:
   data-side `$ref:` imports for agents, toolboxes, and skills.
 * The [`main`](../../tree/main) branch README has decision rationale and
   the engineering brief for the `azure.ai.agents` team. Its
-  [`schemas/`](../../tree/main/schemas) folder is the source of the JSON
-  Schema this file's `yaml-language-server` directive points at.
+  [`schemas/`](../../tree/main/schemas) folder is the proposed extension-side
+  JSON Schema family that the agents extension would publish. The
+  `yaml-language-server` directive at the top of this `azure.yaml` points
+  at azd core's existing schema today; once the proposed `host:
+  microsoft.foundry` conditional lands in core, the chain to those
+  per-resource schemas lights up automatically.
