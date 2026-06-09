@@ -122,6 +122,9 @@ agents nested in the service entry:
 
 * The [`complex`](../../tree/complex) branch shows the same shape scaled to
   multiple agents (hosted + prompt), shared toolboxes, MCP connections,
-  skills, routines, and a non-Foundry Container Apps frontend.
+  skills, routines, and a non-Foundry Container Apps frontend -- plus
+  data-side `$ref:` imports for agents, toolboxes, and skills.
 * The [`main`](../../tree/main) branch README has decision rationale and
-  the engineering brief for the `azure.ai.agents` team.
+  the engineering brief for the `azure.ai.agents` team. Its
+  [`schemas/`](../../tree/main/schemas) folder is the source of the JSON
+  Schema this file's `yaml-language-server` directive points at.
