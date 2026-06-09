@@ -40,23 +40,33 @@ services:
   agent-project:
     host: microsoft.foundry            # new host kind: Foundry project is the service
 
-    deployments:                       # project-scoped model deployments
-      - name: gpt-4.1-mini
-        model: { format: OpenAI, name: gpt-4.1-mini, version: "2025-04-14" }
-        sku:   { name: GlobalStandard, capacity: 10 }
+    deployments:                       # project-scoped model deployments (existing agents schema)
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 10
+          name: GlobalStandard
 
     agents:                            # ALL agent definitions nest here
-      basic-agent:                     # the one agent in this project
+      - name: basic-agent
         kind: hosted
         project: src/basic-agent       # per-agent source dir (NOT the service's)
-        docker: { path: Dockerfile, remoteBuild: true }
+        docker:
+          path: Dockerfile
+          remoteBuild: true
         protocols:
-          - { protocol: responses, version: "1.0.0" }
+          - protocol: responses
+            version: "1.0.0"
         startupCommand: python main.py
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
         container:
-          resources: { cpu: "0.25", memory: "0.5Gi" }
+          resources:
+            cpu: "0.25"
+            memory: 0.5Gi
 ```
 
 ### Why one service entry for the whole Foundry project

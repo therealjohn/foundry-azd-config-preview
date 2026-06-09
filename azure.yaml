@@ -8,28 +8,25 @@ services:
   # A Foundry project IS the service. Everything Foundry-related -- model
   # deployments, connections, toolboxes, skills, routines, and the agents
   # themselves -- lives directly under this single entry, no `config:`
-  # indirection.
-  #
-  # New host kind: `microsoft.foundry`. The extension's service-target
-  # owns the full lifecycle (provision the Foundry project, reconcile
-  # project state, build + push each agent's code, post agent definitions).
+  # indirection. Field shapes for deployments/connections/toolboxes match
+  # the existing `azure.ai.agent.json` extension schema.
   agent-project:
     host: microsoft.foundry
 
     deployments:
-      - name: gpt-4.1-mini
-        model:
+      - model:
           format: OpenAI
           name: gpt-4.1-mini
           version: "2025-04-14"
+        name: gpt-4.1-mini
         sku:
-          name: GlobalStandard
           capacity: 10
+          name: GlobalStandard
 
     agents:
       # Hosted agent: definition + code/build colocated in the same entry.
       # No separate services: entry, no link field.
-      basic-agent:
+      - name: basic-agent
         kind: hosted
         description: A basic Agent Framework agent hosted by Foundry.
         project: src/basic-agent
@@ -37,11 +34,12 @@ services:
           path: Dockerfile
           remoteBuild: true
         protocols:
-          - { protocol: responses, version: "1.0.0" }
+          - protocol: responses
+            version: "1.0.0"
         startupCommand: python main.py
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
         container:
           resources:
             cpu: "0.25"
-            memory: "0.5Gi"
+            memory: 0.5Gi
