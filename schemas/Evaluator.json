@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/Evaluator.json",
+  "title": "Foundry evaluator",
+  "description": "An evaluator that scores agent responses along a quality dimension. Items in an evaluators array may be inline or a $ref to an external file. Builtin evaluators (e.g., builtin.task_adherence) can be referenced by name without a local_uri; custom evaluators require a local_uri pointing to the evaluator definition file.",
+  "oneOf": [
+    { "$ref": "#/definitions/Inline" },
+    { "$ref": "FileRef.json" }
+  ],
+  "definitions": {
+    "Inline": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Evaluator name. Builtin evaluators use a 'builtin.' prefix (e.g., 'builtin.task_adherence', 'builtin.response_completeness'). Custom evaluators use a project-scoped name."
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of the evaluator. When omitted, the latest version is used. For builtin evaluators, pins to a specific version. For custom evaluators, identifies the uploaded version."
+        },
+        "local_uri": {
+          "type": "string",
+          "description": "Relative path to the local evaluator definition file. Required for custom evaluators. The extension uploads this file to the Foundry project on deploy."
+        }
+      }
+    }
+  }
+}

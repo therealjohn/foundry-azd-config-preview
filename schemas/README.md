@@ -23,6 +23,9 @@ schemas/
 ├── Skill.json                   -- skills
 ├── Routine.json                 -- routines (scheduled / event-driven agent invocations)
 ├── Agent.json                   -- agents (hosted + prompt variants)
+├── Evaluator.json               -- evaluators (builtin + custom)
+├── Dataset.json                 -- datasets (local + remote)
+├── EvaluationSuite.json         -- evaluation suites (dataset + evaluators + options)
 └── FileRef.json                 -- the {$ref: ...} alternate shape for external file imports
 ```
 
