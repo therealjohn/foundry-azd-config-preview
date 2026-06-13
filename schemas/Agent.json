@@ -42,6 +42,11 @@
           "type": "string",
           "description": "Name of a skill (declared in skills[]) this agent is backed by."
         },
+        "evaluation-suites": {
+          "type": "array",
+          "description": "Names of evaluation suites (declared in evaluation-suites[]) to run against this agent.",
+          "items": { "type": "string" }
+        },
         "metadata": {
           "type": "object",
           "description": "Free-form metadata key-value pairs.",
@@ -64,6 +69,7 @@
             "toolboxes":   true,
             "tools":       true,
             "skill":       true,
+            "evaluation-suites": true,
             "metadata":    true,
             "protocols": {
               "type": "array",
@@ -145,6 +151,7 @@
             "toolboxes":   true,
             "tools":       true,
             "skill":       true,
+            "evaluation-suites": true,
             "metadata":    true,
             "instructions": {
               "type": "string",

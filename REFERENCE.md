@@ -155,12 +155,42 @@ services:
         startupCommand: python main.py
         toolboxes: [my-toolbox]
         skill: code-review
+        evaluation-suites: [smoke, nightly]
         env:
           FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
         container:
           resources:
             cpu: "0.5"
             memory: 1Gi
+
+    evaluators:
+      - name: builtin.task_adherence
+      - name: builtin.response_completeness
+      - name: tone-checker
+        local_uri: evaluators/tone-checker.json
+
+    datasets:
+      - name: golden-qa
+        local_uri: ./data/golden-qa.jsonl
+      - name: weekly-sample
+
+    evaluation-suites:
+      - name: smoke
+        dataset: golden-qa
+        evaluators:
+          - builtin.task_adherence
+        options:
+          max_samples: 25
+
+      - name: nightly
+        dataset: weekly-sample
+        evaluators:
+          - builtin.task_adherence
+          - builtin.response_completeness
+          - tone-checker
+        options:
+          eval_model: gpt-4.1-mini
+          trace_days: 7
 ```
 
 The accompanying file layout `azd ai agent init` would produce:
@@ -759,6 +789,91 @@ routines:
 
 ---
 
+## Evaluation
+
+All evaluation resources (evaluators, datasets, evaluation-suites) are
+top-level properties on the service. Each can be inline or a `$ref:` with
+a fragment pointer to a shared `eval.yaml`.
+
+### Resolution order
+
+```
+evaluators  ─┐
+              ├──▶  evaluation-suites  ──▶  agents (evaluation-suites: [...])
+datasets   ─┘
+```
+
+- **evaluators** and **datasets** have no dependencies — resolved first.
+- **evaluation-suites** reference evaluators and datasets by name; they are resolved after those categories.
+- **agents** reference suites via `evaluation-suites: [...]`.
+
+The extension resolves in this order: evaluators + datasets → evaluation-suites → agents.
+
+### Using `$ref` to a separate eval.yaml (recommended)
+
+```yaml
+    evaluators:
+      $ref: ./eval.yaml#/evaluators
+    datasets:
+      $ref: ./eval.yaml#/datasets
+    evaluation-suites:
+      $ref: ./eval.yaml#/evaluation-suites
+```
+
+**`eval.yaml`**
+```yaml
+evaluators:
+  - name: builtin.task_adherence
+  - name: builtin.response_completeness
+    version: "2"
+  - name: custom-quality
+    version: "1"
+    local_uri: evaluators/custom-quality.json
+
+datasets:
+  - name: golden-qa
+    version: v1
+    local_uri: ./data/golden-qa.jsonl
+  - name: production-sample
+
+evaluation-suites:
+  - name: smoke
+    dataset: golden-qa
+    evaluators:
+      - builtin.task_adherence
+
+  - name: nightly-full
+    description: Full quality gate run against production sample
+    dataset: production-sample
+    evaluators:
+      - builtin.task_adherence
+      - builtin.response_completeness
+      - custom-quality
+    options:
+      eval_model: gpt-4.1-mini
+      max_samples: 200
+      trace_days: 7
+```
+
+### Inline evaluation
+
+```yaml
+    evaluators:
+      - name: builtin.task_adherence
+      - name: tone-checker
+        local_uri: evaluators/tone-checker.json
+    datasets:
+      - name: golden-qa
+        local_uri: ./data/golden-qa.jsonl
+    evaluation-suites:
+      - name: smoke
+        dataset: golden-qa
+        evaluators:
+          - builtin.task_adherence
+```
+
+---
+
 ## Agent code -- container mode (`docker:`)
 
 Set when the agent has a `Dockerfile`. Mutually exclusive with `runtime:`.
@@ -1155,3 +1270,5 @@ services:
       FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
       AGENT_NAME: api-agent
 ```
+
+

@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/Dataset.json",
+  "title": "Foundry evaluation dataset",
+  "description": "A dataset used for evaluation or optimization. Items in a datasets array may be inline or a $ref to an external file. A dataset is either local (local_uri points to a .jsonl file) or remote (name references an already-uploaded dataset in the Foundry project).",
+  "oneOf": [
+    { "$ref": "#/definitions/Inline" },
+    { "$ref": "FileRef.json" }
+  ],
+  "definitions": {
+    "Inline": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Dataset name. Used to reference the dataset from evaluation-suites."
+        },
+        "version": {
+          "type": "string",
+          "description": "Version identifier for the dataset. When omitted, the latest version is used."
+        },
+        "local_uri": {
+          "type": "string",
+          "description": "Relative path to a local dataset file (typically .jsonl). The extension uploads this file to the Foundry project on deploy. When omitted, the dataset must already exist remotely."
+        }
+      }
+    }
+  }
+}

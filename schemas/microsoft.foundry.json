@@ -39,6 +39,36 @@
       "type": "array",
       "description": "All agent definitions (hosted and prompt).",
       "items": { "$ref": "Agent.json" }
+    },
+    "evaluators": {
+      "oneOf": [
+        {
+          "type": "array",
+          "description": "Evaluator definitions (builtin references and custom evaluators).",
+          "items": { "$ref": "Evaluator.json" }
+        },
+        { "$ref": "FileRef.json" }
+      ]
+    },
+    "datasets": {
+      "oneOf": [
+        {
+          "type": "array",
+          "description": "Evaluation datasets (local files or remote references).",
+          "items": { "$ref": "Dataset.json" }
+        },
+        { "$ref": "FileRef.json" }
+      ]
+    },
+    "evaluation-suites": {
+      "oneOf": [
+        {
+          "type": "array",
+          "description": "Evaluation suites that compose a dataset and evaluators into a reusable quality check. Agents reference suites by name.",
+          "items": { "$ref": "EvaluationSuite.json" }
+        },
+        { "$ref": "FileRef.json" }
+      ]
     }
   }
 }

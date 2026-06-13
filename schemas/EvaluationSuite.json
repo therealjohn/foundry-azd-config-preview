@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/therealjohn/foundry-azd-config-preview/main/schemas/EvaluationSuite.json",
+  "title": "Foundry evaluation suite",
+  "description": "A reusable evaluation definition (dataset + evaluators + options). Agents reference suites by name via their evaluation-suites[] field. Depends on: evaluators[] and datasets[] must be resolved before evaluation-suites (suites reference them by name). Items in an evaluation-suites array may be inline or a $ref to an external file.",
+  "oneOf": [
+    { "$ref": "#/definitions/Inline" },
+    { "$ref": "FileRef.json" }
+  ],
+  "definitions": {
+    "Inline": {
+      "type": "object",
+      "required": ["name", "dataset", "evaluators"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the evaluation suite."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this suite validates."
+        },
+        "dataset": {
+          "type": "string",
+          "description": "Name of a dataset declared in datasets[]."
+        },
+        "evaluators": {
+          "type": "array",
+          "description": "Names of evaluators declared in evaluators[]. Builtin evaluators (e.g., 'builtin.task_adherence') may be referenced without a top-level declaration.",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "options": {
+          "$ref": "#/definitions/EvalOptions"
+        }
+      }
+    },
+    "EvalOptions": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Execution options for evaluation or optimization. Known keys include eval_model, max_samples, trace_days, optimization_model, optimization_config, max_candidates, and evaluation_level, but any key-value pair is accepted."
+    }
+  }
+}
