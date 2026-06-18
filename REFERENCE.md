@@ -95,6 +95,17 @@ new Foundry project (no `endpoint:`), new model deployment, new project
 connection, new toolbox, new skill, one hosted agent. Drop it into a repo
 as a starting point; trim any section you don't need.
 
+This branch splits the project across **one service per extension** instead of
+bundling everything under a single `host: microsoft.foundry` entry. The project
+and its model deployments live in an `azure.ai.projects` service; connections,
+toolboxes, and skills each get their own service (`azure.ai.connections`,
+`azure.ai.toolboxes`, `azure.ai.skills`); and **each agent is its own
+`azure.ai.agents` service** -- one per agent, the way per-agent services work
+today. Services are wired with `uses:` for ordering, and resources still
+reference each other by name across service boundaries. The rest of this
+document uses the bundled `host: microsoft.foundry` shape; this example is the
+per-extension alternative.
+
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/schemas/v1.0/azure.yaml.json
 
@@ -103,10 +114,10 @@ metadata:
   template: azd-init@1.21.0
 
 services:
-  my-project:
-    host: microsoft.foundry
-    # No `endpoint:` -- azd provisions a new Foundry project.
-
+  # The Foundry project itself + its model deployments.
+  # No `endpoint:` -- azd provisions a new Foundry project.
+  project:
+    host: azure.ai.projects
     deployments:
       - model:
           format: OpenAI
@@ -117,6 +128,11 @@ services:
           capacity: 10
           name: GlobalStandard
 
+  # Project connections.
+  connections:
+    host: azure.ai.connections
+    uses:
+      - project
     connections:
       - name: github-mcp-conn
         category: CustomKeys
@@ -127,6 +143,12 @@ services:
         metadata:
           type: custom_MCP
 
+  # Toolboxes (the mcp tool binds to github-mcp-conn by name).
+  toolboxes:
+    host: azure.ai.toolboxes
+    uses:
+      - project
+      - connections
     toolboxes:
       - name: my-toolbox
         tools:
@@ -135,32 +157,44 @@ services:
           - type: mcp
             connection: github-mcp-conn
 
+  # Skills.
+  skills:
+    host: azure.ai.skills
+    uses:
+      - project
     skills:
       - name: code-review
         description: Reviews code for bugs and style issues
         instructions: ./prompts/code-review.md
         tools: [file_search, code_interpreter]
 
-    agents:
-      - name: my-agent
-        kind: hosted
-        description: General-purpose assistant with web, code, and GitHub MCP tools.
-        project: src/my-agent
-        docker:
-          path: Dockerfile
-          remoteBuild: true
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
-        startupCommand: python main.py
-        toolboxes: [my-toolbox]
-        skill: code-review
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
-        container:
-          resources:
-            cpu: "0.5"
-            memory: 1Gi
+  # One service per agent (host: azure.ai.agents). Add another such
+  # service per additional agent -- agents are never bundled into one entry.
+  my-agent:
+    host: azure.ai.agents
+    uses:
+      - project
+      - connections
+      - toolboxes
+      - skills
+    kind: hosted
+    description: General-purpose assistant with web, code, and GitHub MCP tools.
+    project: src/my-agent              # source path -- not the "project" service above
+    docker:
+      path: Dockerfile
+      remoteBuild: true
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
+    startupCommand: python main.py
+    toolboxes: [my-toolbox]
+    skill: code-review
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+    container:
+      resources:
+        cpu: "0.5"
+        memory: 1Gi
 ```
 
 The accompanying file layout `azd ai agent init` would produce:
@@ -181,12 +215,13 @@ The accompanying file layout `azd ai agent init` would produce:
         └── .dockerignore
 ```
 
-End-to-end lifecycle:
+End-to-end lifecycle (azd walks the services in `uses:` order:
+`project` -> `connections` -> `toolboxes` / `skills` -> `my-agent`):
 
 | Command | Effect |
 |---|---|
-| `azd provision` | Creates the Foundry project (ARM via in-memory Bicep) and the `gpt-4.1-mini` model deployment. |
-| `azd deploy`    | Reconciles `github-mcp-conn`, `my-toolbox`, and the `code-review` skill via Foundry APIs; builds + pushes the `my-agent` container via ACR; posts `createAgentVersion` for `my-agent`. |
+| `azd provision` | The `project` service creates the Foundry project (ARM via in-memory Bicep) and the `gpt-4.1-mini` model deployment. |
+| `azd deploy`    | Runs each service target in `uses:` order: the `connections`, `toolboxes`, and `skills` services reconcile `github-mcp-conn`, `my-toolbox`, and `code-review` via Foundry APIs; then the `my-agent` service builds + pushes its container via ACR and posts `createAgentVersion`. |
 | `azd up`        | Both, in order. |
 | `azd down`      | Destroys the Foundry project (takes the deployment, connection, toolbox, skill, and agent definition with it). |
 
