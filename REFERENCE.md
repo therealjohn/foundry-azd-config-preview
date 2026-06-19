@@ -4,27 +4,29 @@ Copy-pasteable snippets for the unified `azure.yaml` shape. Each example
 is the minimum YAML that expresses one scenario -- omit anything you don't
 need; the extension will fill in sensible defaults.
 
-Field shapes (`deployments`, `connections`, `toolboxes`, `container.resources`,
-etc.) match the existing
+Field shapes (`deployments`, `tools`, `container.resources`, etc.) match the
+existing
 [`azure.ai.agent.json`](https://github.com/Azure/azure-dev/blob/main/cli/azd/extensions/azure.ai.agents/schemas/azure.ai.agent.json)
-schema the agents extension already publishes. Collections are arrays of
-objects with a `name:` field. Nested objects use multi-line YAML, not
-inline `{}` form.
+schema the agents extension already publishes. **In this branch each Foundry
+resource is its own service**, keyed by its name -- so connections, toolboxes,
+skills, agents, and routines are individual `services:` entries rather than
+arrays nested under one service. Only `deployments` stays an array (on the
+single `azure.ai.project` service, since deployments belong to the project).
+Nested objects use multi-line YAML, not inline `{}` form.
 
-All examples assume:
+Every snippet below is a `services:` excerpt and omits the file header.
+Prepend this to make a complete `azure.yaml`:
 
 ```yaml
 name: my-foundry-app
 metadata:
   template: azd-init@1.21.0
-
-services:
-  my-project:
-    host: microsoft.foundry
-    # ... snippet content here
 ```
 
-Replace `my-project` with whatever name fits your project.
+Each resource entry is keyed by its name and carries a singular
+`host: azure.ai.<kind>` -- one of `azure.ai.project`, `azure.ai.connection`,
+`azure.ai.toolbox`, `azure.ai.skill`, `azure.ai.agent`, or `azure.ai.routine`.
+Replace the example names with whatever fits your project.
 
 ---
 
@@ -115,8 +117,8 @@ add another entry for each additional resource you want. The model deployments
 stay as an array on the single `azure.ai.project` service (there is one Foundry
 project, and deployments belong to it). Services are wired with `uses:` for
 ordering, and resources still reference each other by name across service
-boundaries. The rest of this document uses the bundled `host: microsoft.foundry`
-shape; this example is the per-resource alternative.
+boundaries. Every snippet in the rest of this document follows the same
+per-resource shape.
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/schemas/v1.0/azure.yaml.json
@@ -244,7 +246,7 @@ patterns, other deploy modes, language stacks, etc.).
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
+    host: azure.ai.project
     deployments:
       - model:
           format: OpenAI
@@ -254,18 +256,20 @@ services:
         sku:
           capacity: 10
           name: GlobalStandard
-    agents:
-      - name: my-agent
-        kind: hosted
-        project: src/my-agent
-        docker:
-          path: Dockerfile
-          remoteBuild: true
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+
+  my-agent:
+    host: azure.ai.agent
+    uses: [my-project]
+    kind: hosted
+    project: src/my-agent
+    docker:
+      path: Dockerfile
+      remoteBuild: true
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 ### Multiple agents
@@ -273,7 +277,7 @@ services:
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
+    host: azure.ai.project
     deployments:
       - model:
           format: OpenAI
@@ -283,40 +287,45 @@ services:
         sku:
           capacity: 20
           name: GlobalStandard
-    agents:
-      - name: support-agent
-        kind: hosted
-        project: src/support-agent
-        runtime:
-          stack: python
-          version: "3.12"
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
-      - name: research-agent
-        kind: hosted
-        project: src/research-agent
-        docker:
-          path: Dockerfile
-          remoteBuild: true
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+
+  support-agent:
+    host: azure.ai.agent
+    uses: [my-project]
+    kind: hosted
+    project: src/support-agent
+    runtime:
+      stack: python
+      version: "3.12"
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+
+  research-agent:
+    host: azure.ai.agent
+    uses: [my-project]
+    kind: hosted
+    project: src/research-agent
+    docker:
+      path: Dockerfile
+      remoteBuild: true
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 ### Prompt-only agent
 
 No `project:`, no `runtime:`, no `docker:`. Pure configuration; the
-`microsoft.foundry` target reconciles it as data-plane state.
+`azure.ai.agent` target reconciles it as data-plane state.
 
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
+    host: azure.ai.project
     deployments:
       - model:
           format: OpenAI
@@ -326,16 +335,18 @@ services:
         sku:
           capacity: 10
           name: GlobalStandard
-    agents:
-      - name: triage-agent
-        kind: prompt
-        description: Routes customer questions to a specialist
-        instructions: |
-          You are a triage agent. Route the user's question to one of:
-          support-agent, research-agent. Respond with JSON:
-          {"route": "<agent-name>", "reason": "..."}
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+
+  triage-agent:
+    host: azure.ai.agent
+    uses: [my-project]
+    kind: prompt
+    description: Routes customer questions to a specialist
+    instructions: |
+      You are a triage agent. Route the user's question to one of:
+      support-agent, research-agent. Respond with JSON:
+      {"route": "<agent-name>", "reason": "..."}
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
 ```
 
 ### Mixed: hosted + prompt agents
@@ -343,7 +354,7 @@ services:
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
+    host: azure.ai.project
     deployments:
       - model:
           format: OpenAI
@@ -361,24 +372,29 @@ services:
         sku:
           capacity: 20
           name: GlobalStandard
-    agents:
-      - name: triage-agent                # prompt, no code
-        kind: prompt
-        instructions: |
-          You are a triage agent...
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
-      - name: support-agent               # hosted, has code
-        kind: hosted
-        project: src/support-agent
-        runtime:
-          stack: python
-          version: "3.12"
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
-        env:
-          FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
+
+  triage-agent:                       # prompt, no code
+    host: azure.ai.agent
+    uses: [my-project]
+    kind: prompt
+    instructions: |
+      You are a triage agent...
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+
+  support-agent:                      # hosted, has code
+    host: azure.ai.agent
+    uses: [my-project]
+    kind: hosted
+    project: src/support-agent
+    runtime:
+      stack: python
+      version: "3.12"
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
+    env:
+      FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1
 ```
 
 ---
@@ -394,8 +410,8 @@ and project name come from the azd environment.
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
-    # ... deployments, agents, etc.
+    host: azure.ai.project
+    # ... deployments only -- agents, toolboxes, etc. are their own services.
 ```
 
 ### Reference an existing Foundry project
@@ -408,9 +424,9 @@ pushes agents.
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
+    host: azure.ai.project
     endpoint: ${FOUNDRY_PROJECT_ENDPOINT}    # set in .azure/<env>/.env
-    # ... deployments, agents, etc.
+    # ... deployments only -- agents, toolboxes, etc. are their own services.
 ```
 
 ---
@@ -420,15 +436,18 @@ services:
 ### New model deployment
 
 ```yaml
-deployments:
-  - model:
-      format: OpenAI
-      name: gpt-4.1
-      version: "2025-04-14"
-    name: gpt-4.1
-    sku:
-      capacity: 50
-      name: GlobalStandard
+services:
+  my-project:
+    host: azure.ai.project
+    deployments:
+      - model:
+          format: OpenAI
+          name: gpt-4.1
+          version: "2025-04-14"
+        name: gpt-4.1
+        sku:
+          capacity: 50
+          name: GlobalStandard
 ```
 
 ### Reference an existing model deployment
@@ -439,9 +458,10 @@ reference it by name where it's used -- the extension verifies presence
 at deploy time. Nothing for azd to manage.
 
 ```yaml
-# No deployments: entry needed.
-agents:
-  - name: my-agent
+# No azure.ai.project deployment entry needed.
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     env:
       FOUNDRY_MODEL_DEPLOYMENT_NAME: existing-shared-model
@@ -453,33 +473,36 @@ Declare every deployment azd should create or upsert. Anything not
 declared but referenced by name is treated as existing.
 
 ```yaml
-deployments:
-  - model:
-      format: OpenAI
-      name: gpt-4.1
-      version: "2025-04-14"
-    name: gpt-4.1
-    sku:
-      capacity: 50
-      name: GlobalStandard
-  - model:
-      format: OpenAI
-      name: gpt-4.1-mini
-      version: "2025-04-14"
-    name: gpt-4.1-mini
-    sku:
-      capacity: 20
-      name: GlobalStandard
-  - model:
-      format: OpenAI
-      name: text-embedding-3-small
-      version: "1"
-    name: text-embedding-3-small
-    sku:
-      capacity: 10
-      name: Standard
-# `shared-batch-model` exists on the project (provisioned by another team)
-# and is just referenced by name from any agent that needs it -- not declared here.
+services:
+  my-project:
+    host: azure.ai.project
+    deployments:
+      - model:
+          format: OpenAI
+          name: gpt-4.1
+          version: "2025-04-14"
+        name: gpt-4.1
+        sku:
+          capacity: 50
+          name: GlobalStandard
+      - model:
+          format: OpenAI
+          name: gpt-4.1-mini
+          version: "2025-04-14"
+        name: gpt-4.1-mini
+        sku:
+          capacity: 20
+          name: GlobalStandard
+      - model:
+          format: OpenAI
+          name: text-embedding-3-small
+          version: "1"
+        name: text-embedding-3-small
+        sku:
+          capacity: 10
+          name: Standard
+    # `shared-batch-model` exists on the project (provisioned by another team)
+    # and is just referenced by name from any agent that needs it -- not declared here.
 ```
 
 ---
@@ -491,8 +514,9 @@ deployments:
 Useful for arbitrary MCP servers that take a custom header name.
 
 ```yaml
-connections:
-  - name: github-mcp-conn
+services:
+  github-mcp-conn:
+    host: azure.ai.connection
     category: CustomKeys
     target: https://api.githubcopilot.com/mcp
     authType: CustomKeys
@@ -507,8 +531,9 @@ connections:
 Simple `Authorization: Bearer <key>` style auth.
 
 ```yaml
-connections:
-  - name: tavily-mcp-conn
+services:
+  tavily-mcp-conn:
+    host: azure.ai.connection
     category: ApiKey
     target: https://mcp.tavily.com/mcp
     authType: ApiKey
@@ -525,8 +550,9 @@ project's managed identity authenticates to the target. Best practice
 for Azure-to-Azure connections.
 
 ```yaml
-connections:
-  - name: azure-search-conn
+services:
+  azure-search-conn:
+    host: azure.ai.connection
     category: CognitiveSearch
     target: https://my-search-svc.search.windows.net
     authType: ProjectManagedIdentity
@@ -540,9 +566,10 @@ project connection create`, Foundry Toolkit). **Don't declare it in
 extension verifies presence at deploy.
 
 ```yaml
-# No connections: entry needed.
-toolboxes:
-  - name: research-toolbox
+# No azure.ai.connection service needed.
+services:
+  research-toolbox:
+    host: azure.ai.toolbox
     tools:
       - type: mcp
         connection: shared-mcp-conn   # references existing connection
@@ -555,8 +582,9 @@ toolboxes:
 ### New toolbox with built-in tools
 
 ```yaml
-toolboxes:
-  - name: basic-toolbox
+services:
+  basic-toolbox:
+    host: azure.ai.toolbox
     tools:
       - type: web_search
       - type: code_interpreter
@@ -566,8 +594,9 @@ toolboxes:
 ### Toolbox with connection-backed tools
 
 ```yaml
-connections:
-  - name: github-mcp-conn
+services:
+  github-mcp-conn:
+    host: azure.ai.connection
     category: CustomKeys
     target: https://api.githubcopilot.com/mcp
     authType: CustomKeys
@@ -576,14 +605,15 @@ connections:
     metadata:
       type: custom_MCP
 
-toolboxes:
-  - name: research-toolbox
+  research-toolbox:
+    host: azure.ai.toolbox
+    uses: [github-mcp-conn]
     tools:
       - type: web_search
       - type: mcp
         connection: github-mcp-conn
       - type: azure_ai_search
-        connection: azure-search-conn
+        connection: azure-search-conn        # references existing connection
 ```
 
 ### Reference an existing toolbox
@@ -593,9 +623,10 @@ Toolbox already exists on the Foundry project (e.g., created via
 `azure.yaml`.** Reference by name from any agent.
 
 ```yaml
-# No toolboxes: entry needed.
-agents:
-  - name: my-agent
+# No azure.ai.toolbox service needed.
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     docker:
@@ -610,21 +641,26 @@ One toolbox, multiple consumers -- the problem the old per-agent
 `agent.manifest.yaml` could not solve cleanly.
 
 ```yaml
-toolboxes:
-  - name: shared-tools
+services:
+  shared-tools:
+    host: azure.ai.toolbox
     tools:
       - type: web_search
       - type: code_interpreter
 
-agents:
-  - name: support-agent
+  support-agent:
+    host: azure.ai.agent
+    uses: [shared-tools]
     kind: hosted
     project: src/support-agent
     runtime:
       stack: python
       version: "3.12"
     toolboxes: [shared-tools]
-  - name: research-agent
+
+  research-agent:
+    host: azure.ai.agent
+    uses: [shared-tools]
     kind: hosted
     project: src/research-agent
     docker:
@@ -643,13 +679,16 @@ The standard pattern -- declare a named toolbox, then reference it by
 name from one or more agents.
 
 ```yaml
-toolboxes:
-  - name: my-toolbox
+services:
+  my-toolbox:
+    host: azure.ai.toolbox
     tools:
       - type: web_search
       - type: code_interpreter
-agents:
-  - name: my-agent
+
+  my-agent:
+    host: azure.ai.agent
+    uses: [my-toolbox]
     kind: hosted
     project: src/my-agent
     runtime:
@@ -664,8 +703,9 @@ For one-off, agent-specific tools where a reusable toolbox is overkill.
 The agent's `tools:` list takes the same tool entries a toolbox would.
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -677,19 +717,22 @@ agents:
         connection: github-mcp-conn
 ```
 
-The connection still has to be declared in the parent service's
-`connections:` list (or referenced as existing).
+The connection still has to be declared as its own `azure.ai.connection`
+service (or referenced as existing).
 
 ### Mixed: toolbox + direct tools on one agent
 
 ```yaml
-toolboxes:
-  - name: shared-tools
+services:
+  shared-tools:
+    host: azure.ai.toolbox
     tools:
       - type: web_search
       - type: code_interpreter
-agents:
-  - name: my-agent
+
+  my-agent:
+    host: azure.ai.agent
+    uses: [shared-tools]
     kind: hosted
     project: src/my-agent
     runtime:
@@ -711,8 +754,9 @@ agents:
 Best for short prompts (a paragraph or two).
 
 ```yaml
-skills:
-  - name: classifier
+services:
+  classifier:
+    host: azure.ai.skill
     description: Classifies user intent into one of 5 categories
     instructions: |
       Read the user message and respond with a single JSON object:
@@ -725,8 +769,9 @@ Best for longer prompts. Path is relative to `azure.yaml`. Friendlier to
 git diffs and to non-developer prompt authors.
 
 ```yaml
-skills:
-  - name: code-review
+services:
+  code-review:
+    host: azure.ai.skill
     description: Reviews code for bugs and style issues
     instructions: ./prompts/code-review.md
     tools: [file_search, code_interpreter]
@@ -737,9 +782,10 @@ skills:
 **Don't declare it in `azure.yaml`.** Reference by name from any agent.
 
 ```yaml
-# No skills: entry needed.
-agents:
-  - name: my-agent
+# No azure.ai.skill service needed.
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: prompt
     skill: shared-skill                          # references existing skill
 ```
@@ -747,12 +793,15 @@ agents:
 ### Agent using a skill
 
 ```yaml
-skills:
-  - name: triage
+services:
+  triage:
+    host: azure.ai.skill
     description: Routes questions to specialists
     instructions: ./prompts/triage.md
-agents:
-  - name: triage-agent
+
+  triage-agent:
+    host: azure.ai.agent
+    uses: [triage]
     kind: prompt
     skill: triage                                # reference by name
     env:
@@ -769,8 +818,9 @@ Cron-based triggering. The named agent runs on the schedule with the
 supplied input.
 
 ```yaml
-routines:
-  - name: nightly-summary
+services:
+  nightly-summary:
+    host: azure.ai.routine
     description: Summarize overnight tickets at 8am UTC
     trigger:
       type: schedule
@@ -786,8 +836,9 @@ Webhook-style trigger (shape depends on the Foundry routines spec; this
 shape is illustrative).
 
 ```yaml
-routines:
-  - name: on-ticket-created
+services:
+  on-ticket-created:
+    host: azure.ai.routine
     description: Triage every new support ticket as it arrives
     trigger:
       type: webhook
@@ -810,8 +861,9 @@ Build happens on the developer's machine via the local Docker daemon.
 Fastest for iteration when you have Docker installed.
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     docker:
@@ -828,8 +880,9 @@ Source is uploaded to Azure Container Registry; ACR builds the image
 server-side. Best for CI environments without Docker.
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     docker:
@@ -846,8 +899,9 @@ Skip the build entirely; deploy an image already in a registry. No
 `docker:` block, no `project:`, no `runtime:` -- just `image:`.
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     image: myregistry.azurecr.io/my-agent:v1.2.3
     protocols:
@@ -867,8 +921,9 @@ managed runtime base image. Mutually exclusive with `docker:`.
 azd zips the project directory locally and uploads to Foundry.
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -886,8 +941,9 @@ Source uploaded; dependencies installed server-side. Useful when local
 Python isn't available or wheels differ across platforms.
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -903,8 +959,9 @@ agents:
 ### .NET
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -919,8 +976,9 @@ agents:
 ### Node.js
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -942,8 +1000,9 @@ Resolved by azd at deploy time from `.azure/<env>/.env`. Use for any
 value that varies by environment.
 
 ```yaml
-connections:
-  - name: my-conn
+services:
+  my-conn:
+    host: azure.ai.connection
     category: ApiKey
     target: ${MY_SERVICE_ENDPOINT}            # endpoint from azd env
     authType: ApiKey
@@ -959,8 +1018,9 @@ should be injected into the running agent process without ever touching
 the developer's disk -- e.g., a credential stored in a connection.
 
 ```yaml
-agents:
-  - name: my-agent
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -980,9 +1040,10 @@ the consuming agent's env via `${{...}}`. Foundry resolves the credential
 server-side at runtime. The developer never sees or stores the secret.
 
 ```yaml
-# No connections: entry needed -- github-mcp-conn exists on the Foundry project.
-agents:
-  - name: my-agent
+# No azure.ai.connection service needed -- github-mcp-conn exists on the Foundry project.
+services:
+  my-agent:
+    host: azure.ai.agent
     kind: hosted
     project: src/my-agent
     runtime:
@@ -996,11 +1057,15 @@ agents:
 
 ## External file references (`$ref`)
 
-Anywhere `azure.yaml` expects a complex object (an agent, toolbox,
-connection, skill, deployment), you can replace the inline definition
-with a `$ref:` to an external YAML or JSON file. Useful when an agent or
-toolbox grows large, when prompt authors and infra authors live in
-different files, or when you want to share a definition across projects.
+Any Foundry resource can be loaded from an external YAML or JSON file
+instead of being written inline. In this branch each resource is a service,
+so the `$ref:` lives on the service entry beside its `host:`: the `host:`
+(and the service key, which is the resource name) stay inline as siblings,
+and the `$ref` supplies the rest of the body. Deployments are the exception
+-- they stay array items under the `azure.ai.project` service, so their
+`$ref` sits at the array-item level. Useful when an agent or toolbox grows
+large, when prompt authors and infra authors live in different files, or
+when you want to share a definition across projects.
 
 The extension reads the file, deserializes it as the same shape it would
 expect inline, and substitutes it during config load. The file's
@@ -1013,7 +1078,7 @@ In `azure.yaml`:
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
+    host: azure.ai.project
     deployments:
       - model:
           format: OpenAI
@@ -1023,12 +1088,16 @@ services:
         sku:
           capacity: 10
           name: GlobalStandard
-    agents:
-      - $ref: ./agents/research-agent.yaml
+
+  research-agent:
+    host: azure.ai.agent
+    uses: [my-project]
+    $ref: ./agents/research-agent.yaml
 ```
 
-In `./agents/research-agent.yaml` (the agent definition -- includes
-`name:` like any inline agent entry):
+In `./agents/research-agent.yaml` (the agent definition; the service key
+`research-agent` is the resource name, and the file carries a matching
+`name:` so it validates standalone):
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/refs/heads/main/cli/azd/extensions/azure.ai.agents/schemas/agent.json
@@ -1066,10 +1135,9 @@ In `azure.yaml`:
 
 ```yaml
 services:
-  my-project:
-    host: microsoft.foundry
-    toolboxes:
-      - $ref: ./toolboxes/research-toolbox.json
+  research-toolbox:
+    host: azure.ai.toolbox
+    $ref: ./toolboxes/research-toolbox.json
 ```
 
 In `./toolboxes/research-toolbox.json`:
@@ -1088,29 +1156,43 @@ In `./toolboxes/research-toolbox.json`:
 
 ### Other resource types
 
-The same pattern works for skills, connections, and deployments:
+The same pattern works for connections, toolboxes, skills, and agents --
+each as its own service -- and for deployments as array items on the
+project:
 
 ```yaml
 services:
+  # Deployments stay an array on the project service, so their $ref is an
+  # array item:
   my-project:
-    host: microsoft.foundry
-
+    host: azure.ai.project
     deployments:
       - $ref: ./resources/gpt-4.1-mini.yaml
 
-    connections:
-      - $ref: ./resources/github-mcp-conn.yaml
-      - $ref: ./resources/tavily-mcp-conn.json
+  # Every other resource is its own service: host (+ key) inline, $ref body.
+  github-mcp-conn:
+    host: azure.ai.connection
+    $ref: ./resources/github-mcp-conn.yaml
 
-    toolboxes:
-      - $ref: ./toolboxes/shared-tools.yaml
+  tavily-mcp-conn:
+    host: azure.ai.connection
+    $ref: ./resources/tavily-mcp-conn.json
 
-    skills:
-      - $ref: ./skills/code-review.yaml
+  shared-tools:
+    host: azure.ai.toolbox
+    $ref: ./toolboxes/shared-tools.yaml
 
-    agents:
-      - $ref: ./agents/research-agent.yaml
-      - $ref: ./agents/triage-agent.yaml
+  code-review:
+    host: azure.ai.skill
+    $ref: ./skills/code-review.yaml
+
+  research-agent:
+    host: azure.ai.agent
+    $ref: ./agents/research-agent.yaml
+
+  triage-agent:
+    host: azure.ai.agent
+    $ref: ./agents/triage-agent.yaml
 ```
 
 ### Absolute vs. relative paths
@@ -1121,9 +1203,13 @@ Absolute paths are useful in monorepos with a shared definition folder
 referenced from multiple sub-projects.
 
 ```yaml
-agents:
-  - $ref: /Users/me/work/shared-foundry-defs/agents/customer-support.yaml
-  - $ref: C:\work\shared-foundry-defs\agents\customer-support.yaml
+services:
+  customer-support:
+    host: azure.ai.agent
+    # Unix absolute path:
+    $ref: /Users/me/work/shared-foundry-defs/agents/customer-support.yaml
+    # Windows absolute path (same file):
+    # $ref: C:\work\shared-foundry-defs\agents\customer-support.yaml
 ```
 
 Prefer relative paths in committed code -- absolute paths break for other
@@ -1136,8 +1222,10 @@ fields on top." Useful for per-environment tweaks while sharing a base
 definition:
 
 ```yaml
-agents:
-  - $ref: ./agents/research-agent.yaml
+services:
+  research-agent:
+    host: azure.ai.agent                         # host is always an inline sibling
+    $ref: ./agents/research-agent.yaml
     # Overrides applied on top of the loaded file:
     env:
       FOUNDRY_MODEL_DEPLOYMENT_NAME: gpt-4.1     # base file used gpt-4.1-mini
@@ -1156,14 +1244,14 @@ Match how `azd env`'s per-environment overrides work elsewhere.
 
 ## Coexistence with non-Foundry services
 
-Foundry projects sit alongside any other azd service kind in the same
+Foundry resources sit alongside any other azd service kind in the same
 `services:`. Use `uses:` to order non-Foundry consumers after the Foundry
-project so their env vars point at real endpoints.
+services they depend on so their env vars point at real endpoints.
 
 ```yaml
 services:
   my-project:
-    host: microsoft.foundry
+    host: azure.ai.project
     deployments:
       - model:
           format: OpenAI
@@ -1173,16 +1261,18 @@ services:
         sku:
           capacity: 10
           name: GlobalStandard
-    agents:
-      - name: api-agent
-        kind: hosted
-        project: src/api-agent
-        docker:
-          path: Dockerfile
-          remoteBuild: true
-        protocols:
-          - protocol: responses
-            version: "1.0.0"
+
+  api-agent:
+    host: azure.ai.agent
+    uses: [my-project]
+    kind: hosted
+    project: src/api-agent
+    docker:
+      path: Dockerfile
+      remoteBuild: true
+    protocols:
+      - protocol: responses
+        version: "1.0.0"
 
   webapp:
     project: src/webapp
@@ -1191,7 +1281,7 @@ services:
     docker:
       path: Dockerfile
       remoteBuild: true
-    uses: [my-project]                         # deploy after Foundry project
+    uses: [my-project, api-agent]              # deploy after the Foundry services
     env:
       FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
       AGENT_NAME: api-agent
